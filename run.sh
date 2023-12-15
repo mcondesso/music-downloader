@@ -13,6 +13,4 @@ input_file="$1"
 output_file="${input_file%.csv}_with_ids.csv"
 
 # Run the scripts one after the other
-source env/bin/activate
-python create_db_with_youtube_ids.py "$input_file" && python download_tracks.py "$output_file"
-deactivate
+poetry run python create_db_with_youtube_ids.py "$input_file" && poetry run python download_tracks.py "$output_file"
