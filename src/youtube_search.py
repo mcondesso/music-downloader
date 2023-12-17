@@ -25,7 +25,7 @@ def get_youtube_search_results(input_string: str, n_results: int = 5) -> List[di
     formatted_results = [
         {
             "ID": result["id"],
-            "Views": _youtube_result_views_to_integer(result["views"]),
+            "Views": _youtube_result_views_to_integer(str(result["views"])),
             "Duration (s)": _youtube_result_duration_to_seconds(result["duration"]),
         }
         for result in raw_results
