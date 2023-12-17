@@ -22,8 +22,6 @@ METADATA_CLASSES = {
     ".mp4": MP4,
 }
 
-import pdb
-
 
 def prepare_metadata_tags(music_df_row: Series, file_extension: str) -> dict:
     artist_tag = METADATA_TAGS[file_extension]["artist"]
