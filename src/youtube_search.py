@@ -5,7 +5,7 @@ from typing import List
 from pandas.core.series import Series
 from youtube_search import YoutubeSearch
 
-from src.data_handling import get_song_filename
+from src.data_handling import get_song_filename, COLUMN_TRACK_DURATION
 
 
 DURATION_THRESHOLD = 0.05
@@ -52,7 +52,7 @@ def _youtube_result_duration_to_seconds(time_str: str) -> int:
 def find_best_matching_youtube_id(db_entry: Series, search_results: List[dict]) -> str:
     for result in search_results:
         if _is_video_duration_acceptable(
-            db_entry["Duration (s)"], result["Duration (s)"]
+            db_entry[COLUMN_TRACK_DURATION], result["Duration (s)"]
         ):
             return result["ID"]
     raise NoMatchingYoutubeVideoFoundError(

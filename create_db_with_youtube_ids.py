@@ -6,6 +6,7 @@ from tqdm import tqdm
 from src.data_handling import (
     get_pandas_df_from_exportify_csv,
     get_song_filename,
+    COLUMN_YOUTUBE_ID,
 )
 from src.youtube_search import (
     get_youtube_search_results,
@@ -46,7 +47,7 @@ def main():
     music_df = get_pandas_df_from_exportify_csv(filepath=input_filepath)
 
     # Add new empty column to receive the Youtube IDs
-    music_df["Youtube ID"] = ""
+    music_df[COLUMN_YOUTUBE_ID] = ""
 
     print("Finding Youtube IDs for the songs...")
 
@@ -60,7 +61,7 @@ def main():
         except NoMatchingYoutubeVideoFoundError as error:
             print(error)
         else:
-            music_df.at[index, "Youtube ID"] = video_id
+            music_df.at[index, COLUMN_YOUTUBE_ID] = video_id
 
     output_filename = get_output_filename(input_filepath)
     music_df.to_csv(output_filename, index=False)

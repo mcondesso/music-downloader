@@ -4,6 +4,8 @@ from mutagen.easyid3 import EasyID3
 from mutagen.mp4 import MP4
 from pandas.core.series import Series
 
+from src.data_handling import COLUMN_ARTIST_NAME, COLUMN_TRACK_NAME
+
 SUPPORTED_FORMATS = {".mp3", ".mp4"}
 
 METADATA_TAGS = {
@@ -31,13 +33,13 @@ def prepare_metadata_tags(music_df_row: Series, file_extension: str) -> dict:
         # .mp4 files do not support a list of values for Contributing Artist
         # So we have to provide them as a single string, see
         # https://github.com/quodlibet/mutagen/issues/548
-        artist_names = music_df_row["Artist Name(s)"]
+        artist_names = music_df_row[COLUMN_ARTIST_NAME]
     else:
-        artist_names = music_df_row["Artist Name(s)"].split(",")
+        artist_names = music_df_row[COLUMN_ARTIST_NAME].split(",")
 
     return {
         artist_tag: artist_names,
-        title_tag: music_df_row["Track Name"],
+        title_tag: music_df_row[COLUMN_TRACK_NAME],
     }
 
 
