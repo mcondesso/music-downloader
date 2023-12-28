@@ -6,22 +6,26 @@ from pandas.core.series import Series
 
 from src.data_handling import COLUMN_ARTIST_NAME, COLUMN_TRACK_NAME
 
-SUPPORTED_FORMATS = {".mp3", ".mp4"}
+
+FILE_EXTENSION_MP3 = ".mp3"
+FILE_EXTENSION_MP4 = ".mp4"
+
+SUPPORTED_FORMATS = {FILE_EXTENSION_MP3, FILE_EXTENSION_MP4}
 
 METADATA_TAGS = {
-    ".mp3": {
+    FILE_EXTENSION_MP3: {
         "artist": "artist",
         "title": "title",
     },
-    ".mp4": {
+    FILE_EXTENSION_MP4: {
         "artist": "©ART",
         "title": "©nam",
     },
 }
 
 METADATA_CLASSES = {
-    ".mp3": EasyID3,
-    ".mp4": MP4,
+    FILE_EXTENSION_MP3: EasyID3,
+    FILE_EXTENSION_MP4: MP4,
 }
 
 
@@ -29,7 +33,7 @@ def prepare_metadata_tags(music_df_row: Series, file_extension: str) -> dict:
     artist_tag = METADATA_TAGS[file_extension]["artist"]
     title_tag = METADATA_TAGS[file_extension]["title"]
 
-    if file_extension == ".mp4":
+    if file_extension == FILE_EXTENSION_MP4:
         # .mp4 files do not support a list of values for Contributing Artist
         # So we have to provide them as a single string, see
         # https://github.com/quodlibet/mutagen/issues/548

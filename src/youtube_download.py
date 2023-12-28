@@ -1,15 +1,17 @@
 from pytube import YouTube
 
-NUM_RETRIES = 5
+from src.file_metadata import FILE_EXTENSION_MP4
 
+
+NUM_RETRIES = 5
 
 def download_mp4(youtube_url: str, output_dir: str, filename: str):
     # Ensure the filename contains the correct extension
-    if not filename.endswith(".mp4"):
-        filename += ".mp4"
+    if not filename.endswith(FILE_EXTENSION_MP4):
+        filename += FILE_EXTENSION_MP4
 
     # Download audio track from provided youtube_url into a .mp4 file
-    print(f"\nDownloading '{filename.rstrip('.mp4')}'")
+    print(f"\nDownloading '{filename.rstrip(FILE_EXTENSION_MP4)}'")
 
     yt = YouTube(youtube_url)
 
