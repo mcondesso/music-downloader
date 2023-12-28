@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from src.data_handling import get_song_filename, get_youtube_url
 from src.file_metadata import prepare_metadata_tags, set_file_metadata_tags
-from src.youtube_download import download_mp4
+from src.youtube_download import get_audio_from_youtube
 
 
 def main():
@@ -41,7 +41,7 @@ def main():
         youtube_url = get_youtube_url(row)
 
         # Download audio track
-        output_filepath = download_mp4(
+        output_filepath = get_audio_from_youtube(
             youtube_url=youtube_url, output_dir=download_dir, filename=song_filename
         )
 

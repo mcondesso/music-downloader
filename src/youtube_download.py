@@ -7,7 +7,15 @@ from src.file_metadata import FILE_EXTENSION_MP4
 
 NUM_RETRIES = 5
 
-def download_mp4(youtube_url: str, output_dir: str, filename: str) -> str:
+def get_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> str:
+    return _download_mp4_audio_from_youtube(youtube_url, output_dir, filename)
+
+
+def _download_mp4_video_from_youtube(youtube_url: str, output_dir: str, filename: str) -> str:
+    raise NotImplementedError("Implementa-me oh malandro")
+
+
+def _download_mp4_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> str:
     # Ensure the filename contains the correct extension
     if not filename.endswith(FILE_EXTENSION_MP4):
         filename += FILE_EXTENSION_MP4
