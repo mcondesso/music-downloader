@@ -1,3 +1,5 @@
+import os
+
 from pytube import YouTube
 
 from src.file_metadata import FILE_EXTENSION_MP4
@@ -5,7 +7,7 @@ from src.file_metadata import FILE_EXTENSION_MP4
 
 NUM_RETRIES = 5
 
-def download_mp4(youtube_url: str, output_dir: str, filename: str):
+def download_mp4(youtube_url: str, output_dir: str, filename: str) -> str:
     # Ensure the filename contains the correct extension
     if not filename.endswith(FILE_EXTENSION_MP4):
         filename += FILE_EXTENSION_MP4
@@ -15,7 +17,9 @@ def download_mp4(youtube_url: str, output_dir: str, filename: str):
 
     yt = YouTube(youtube_url)
 
-    # Get stream with only audio, order by Average Bit Rate and take highest
+    # Get stream with only audio in mp4 format, order by Average Bit Rate and take highest bit rate
     video = yt.streams.filter(only_audio=True, subtype="mp4").order_by("abr").last()
 
     video.download(output_path=output_dir, max_retries=NUM_RETRIES, filename=filename)
+
+    return os.path.join(output_dir, filename)
