@@ -1,4 +1,4 @@
-# Music download
+# Music downloader
 
 There are two scripts:
 * `create_db_with_youtube_ids` takes a CSV file with song data from Exportify as input and creates a new CSV containing.
