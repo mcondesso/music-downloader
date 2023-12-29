@@ -39,6 +39,9 @@ def _youtube_result_views_to_integer(youtube_views: str) -> int:
 
 
 def _youtube_result_duration_to_seconds(time_str: str) -> int:
+    # Filter videos with 0ms duration. 
+    if time_str == 0: return "0:00" 
+    
     # Parse time string
     time_format = "%H:%M:%S" if len(time_str.split(":")) == 3 else "%M:%S"
     time_obj = datetime.strptime(time_str, time_format)
