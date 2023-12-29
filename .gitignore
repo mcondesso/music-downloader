@@ -2,3 +2,8 @@
 /.idea/
 /.vscode/
 **/__pycache__/
+
+# Ignore the generated files
+*.csv
+*.mp4
+*.mp3 
