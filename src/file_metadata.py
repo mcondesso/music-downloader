@@ -6,7 +6,6 @@ from pandas.core.series import Series
 
 from src.data_handling import COLUMN_ARTIST_NAME, COLUMN_TRACK_NAME
 
-
 FILE_EXTENSION_MP3 = ".mp3"
 FILE_EXTENSION_MP4 = ".mp4"
 

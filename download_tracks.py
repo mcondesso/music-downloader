@@ -41,7 +41,7 @@ def main():
         youtube_url = get_youtube_url(row)
 
         # Download audio track
-        try: 
+        try:
             output_filepath = get_audio_from_youtube(
                 youtube_url=youtube_url, output_dir=download_dir, filename=song_filename
             )
@@ -51,7 +51,9 @@ def main():
 
         # Set Metadata Tags for song title and artist
         file_extension = os.path.splitext(output_filepath)[1]
-        metadata_tags = prepare_metadata_tags(music_df_row=row, file_extension=file_extension)
+        metadata_tags = prepare_metadata_tags(
+            music_df_row=row, file_extension=file_extension
+        )
         set_file_metadata_tags(filepath=output_filepath, metadata_tags=metadata_tags)
 
     print(f"Successfully finished song downloads.\n")
