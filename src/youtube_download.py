@@ -17,7 +17,7 @@ def get_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> 
         # Extract the audio file from the previously downloaded .mp4 file.
         audio_filepath = _extract_mp3_audio_from_mp4_video(video_filepath)
     except Exception as error:
-        print(f"Error processing {filename}: {error}")
+        print(f"Error extracting mp3 from {video_filepath}: {error}")
         video_processing_failed = True
     finally:
         if os.path.exists(video_filepath):
