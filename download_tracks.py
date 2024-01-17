@@ -41,9 +41,13 @@ def main():
         youtube_url = get_youtube_url(row)
 
         # Download audio track
-        output_filepath = get_audio_from_youtube(
-            youtube_url=youtube_url, output_dir=download_dir, filename=song_filename
-        )
+        try: 
+            output_filepath = get_audio_from_youtube(
+                youtube_url=youtube_url, output_dir=download_dir, filename=song_filename
+            )
+        except Exception as error:
+            print(f"Error processing {song_filename}: {error}")
+            continue
 
         # Set Metadata Tags for song title and artist
         file_extension = os.path.splitext(output_filepath)[1]
