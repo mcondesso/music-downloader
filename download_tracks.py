@@ -46,7 +46,7 @@ def main():
                 youtube_url=youtube_url, output_dir=download_dir, filename=song_filename
             )
         except Exception as error:
-            print(f"Error processing {song_filename}: {error}")
+            print(f"Error downloading {song_filename}: {error}")
             continue
 
         # Set Metadata Tags for song title and artist
