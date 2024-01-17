@@ -3,8 +3,7 @@ import os
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from pytube import YouTube
 
-from src.file_metadata import FILE_EXTENSION_MP4, FILE_EXTENSION_MP3
-
+from src.file_metadata import FILE_EXTENSION_MP3, FILE_EXTENSION_MP4
 
 NUM_RETRIES = 5
 
@@ -21,18 +20,22 @@ def get_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> 
         video_processing_failed = True
     finally:
         if os.path.exists(video_filepath):
-           os.remove(video_filepath)
+            os.remove(video_filepath)
 
     # In case of error, download the audio directly using the only_audio=True flag. This is not
     # the default approach because this can lead to corrupted downloaded files, so we only use
     # it as a fallback.
     if video_processing_failed:
-        audio_filepath = _download_mp4_audio_from_youtube(youtube_url, output_dir, filename)
+        audio_filepath = _download_mp4_audio_from_youtube(
+            youtube_url, output_dir, filename
+        )
 
     return audio_filepath
 
 
-def _download_mp4_video_from_youtube(youtube_url: str, output_dir: str, filename: str) -> str:
+def _download_mp4_video_from_youtube(
+    youtube_url: str, output_dir: str, filename: str
+) -> str:
     # Ensure the filename contains the correct extension
     if not filename.endswith(FILE_EXTENSION_MP4):
         filename += FILE_EXTENSION_MP4
@@ -48,7 +51,9 @@ def _download_mp4_video_from_youtube(youtube_url: str, output_dir: str, filename
     return os.path.join(output_dir, filename)
 
 
-def _download_mp4_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> str:
+def _download_mp4_audio_from_youtube(
+    youtube_url: str, output_dir: str, filename: str
+) -> str:
     # Ensure the filename contains the correct extension
     if not filename.endswith(FILE_EXTENSION_MP4):
         filename += FILE_EXTENSION_MP4
@@ -73,7 +78,7 @@ def _extract_mp3_audio_from_mp4_video(video_filepath: str) -> str:
 
     video_clip = VideoFileClip(video_filepath)
     audio_clip = video_clip.audio
-    audio_clip.write_audiofile(output_filename, codec='mp3')
+    audio_clip.write_audiofile(output_filename, codec="mp3")
     video_clip.close()
 
     return output_filename

@@ -1,12 +1,11 @@
-from datetime import datetime
 import re
+from datetime import datetime
 from typing import List
 
 from pandas.core.series import Series
+
+from src.data_handling import COLUMN_TRACK_DURATION, get_song_filename
 from youtube_search import YoutubeSearch
-
-from src.data_handling import get_song_filename, COLUMN_TRACK_DURATION
-
 
 DURATION_THRESHOLD = 0.05
 
