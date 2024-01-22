@@ -25,7 +25,9 @@ def get_youtube_search_results(input_string: str, n_results: int = 5) -> List[di
         {
             "ID": result["id"],
             "Views": _youtube_result_views_to_integer(str(result["views"])),
-            "Duration (s)": _youtube_result_duration_to_seconds(result["duration"]),
+            "Duration (s)": _youtube_result_duration_to_seconds(
+                str(result["duration"])
+            ),
         }
         for result in raw_results
     ]
@@ -39,13 +41,26 @@ def _youtube_result_views_to_integer(youtube_views: str) -> int:
 
 def _youtube_result_duration_to_seconds(time_str: str) -> int:
     # Parse time string
-    time_format = "%H:%M:%S" if len(time_str.split(":")) == 3 else "%M:%S"
+    time_format = _find_time_string_format(time_str)
     time_obj = datetime.strptime(time_str, time_format)
 
     # Calculate total duration in seconds
     total_seconds = time_obj.hour * 3600 + time_obj.minute * 60 + time_obj.second
 
     return total_seconds
+
+
+def _find_time_string_format(time_str: str) -> str:
+    match len(time_str.split(":")):
+        case 1:
+            time_format = "%S"
+        case 2:
+            time_format = "%M:%S"
+        case 3:
+            time_format = "%H:%M:%S"
+        case _:
+            raise ValueError(f"Format of '{time_str}' is not supported")
+    return time_format
 
 
 def find_best_matching_youtube_id(db_entry: Series, search_results: List[dict]) -> str:
