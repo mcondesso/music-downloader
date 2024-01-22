@@ -1,6 +1,7 @@
 import argparse
 import os
 
+from pandas import DataFrame
 from tqdm import tqdm
 
 from src.data_handling import (
@@ -15,15 +16,16 @@ from src.youtube_search import (
 )
 
 
-def get_output_filename(input_filename: str) -> str:
+def get_output_filename(input_filename: str, with_ids: bool) -> str:
     # Split the path into directory and file components
     directory, file_name = os.path.split(input_filename)
 
     # Split the file name into name and extension
     name, extension = os.path.splitext(file_name)
 
-    # Construct the modified path by appending "with_ids" before the extension
-    modified_path = os.path.join(directory, f"{name}_with_ids{extension}")
+    # Construct the modified filepath
+    ids = "with_ids" if with_ids else "without_ids"
+    modified_path = os.path.join(directory, f"{name}_{ids}{extension}")
 
     return modified_path
 
@@ -51,6 +53,9 @@ def main():
 
     print("Finding Youtube IDs for the songs...")
 
+    row_list_with_ids = list()
+    row_list_missing_ids = list()
+
     for index, row in tqdm(music_df.iterrows()):
         search_string = get_song_filename(row)
         search_results = get_youtube_search_results(search_string)
@@ -60,13 +65,21 @@ def main():
             )
         except NoMatchingYoutubeVideoFoundError as error:
             print(error)
+            row_list_missing_ids.append(row)
         else:
-            music_df.at[index, COLUMN_YOUTUBE_ID] = video_id
+            row[COLUMN_YOUTUBE_ID] = video_id
+            row_list_with_ids.append(row)
 
-    output_filename = get_output_filename(input_filepath)
-    music_df.to_csv(output_filename, index=False)
+    filename_with_ids = get_output_filename(input_filepath, with_ids=True)
+    music_df_with_ids = DataFrame(row_list_with_ids)
+    music_df_with_ids.to_csv(filename_with_ids, index=False)
+    print(f"Created {filename_with_ids}.\n")
 
-    print(f"Created {output_filename}.\n")
+    if row_list_missing_ids:
+        filename_without_ids = get_output_filename(input_filepath, with_ids=False)
+        music_df_without_ids = DataFrame(row_list_missing_ids)
+        music_df_without_ids.to_csv(filename_without_ids, index=False)
+        print(f"Created {filename_without_ids}.\n")
 
 
 if __name__ == "__main__":
