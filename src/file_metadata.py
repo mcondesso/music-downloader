@@ -1,8 +1,8 @@
 import os
+from typing import Dict
 
 from mutagen.easyid3 import EasyID3
 from mutagen.mp4 import MP4
-from pandas.core.series import Series
 
 from src.data_handling import COLUMN_ARTIST_NAME, COLUMN_TRACK_NAME
 
@@ -28,7 +28,7 @@ METADATA_CLASSES = {
 }
 
 
-def prepare_metadata_tags(music_df_row: Series, file_extension: str) -> dict:
+def prepare_metadata_tags(music_df_row: Dict, file_extension: str) -> dict:
     artist_tag = METADATA_TAGS[file_extension]["artist"]
     title_tag = METADATA_TAGS[file_extension]["title"]
 

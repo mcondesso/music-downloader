@@ -1,13 +1,13 @@
 import argparse
 import os
 
-from pandas import DataFrame
 from tqdm import tqdm
 
 from src.data_handling import (
     COLUMN_YOUTUBE_ID,
-    get_pandas_df_from_exportify_csv,
+    get_data_list_from_exportify_csv,
     get_song_filename,
+    write_csv,
 )
 from src.youtube_search import (
     NoMatchingYoutubeVideoFoundError,
@@ -46,17 +46,14 @@ def main():
         input_filepath = args.file_path
 
     # Read CSV file
-    music_df = get_pandas_df_from_exportify_csv(filepath=input_filepath)
-
-    # Add new empty column to receive the Youtube IDs
-    music_df[COLUMN_YOUTUBE_ID] = ""
+    music_df, column_names = get_data_list_from_exportify_csv(filepath=input_filepath)
 
     print("Finding Youtube IDs for the songs...")
 
     row_list_with_ids = list()
     row_list_missing_ids = list()
 
-    for index, row in tqdm(music_df.iterrows()):
+    for row in tqdm(music_df):
         search_string = get_song_filename(row)
         search_results = get_youtube_search_results(search_string)
         try:
@@ -71,15 +68,19 @@ def main():
             row_list_with_ids.append(row)
 
     filename_with_ids = get_output_filename(input_filepath, with_ids=True)
-    music_df_with_ids = DataFrame(row_list_with_ids)
-    music_df_with_ids.to_csv(filename_with_ids, index=False)
-    print(f"Created {filename_with_ids}.\n")
+    write_csv(
+        file_path=filename_with_ids,
+        data=row_list_with_ids,
+        fieldnames=column_names + [COLUMN_YOUTUBE_ID],
+    )
 
     if row_list_missing_ids:
         filename_without_ids = get_output_filename(input_filepath, with_ids=False)
-        music_df_without_ids = DataFrame(row_list_missing_ids)
-        music_df_without_ids.to_csv(filename_without_ids, index=False)
-        print(f"Created {filename_without_ids}.\n")
+        write_csv(
+            file_path=filename_without_ids,
+            data=row_list_missing_ids,
+            fieldnames=column_names,
+        )
 
 
 if __name__ == "__main__":

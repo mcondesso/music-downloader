@@ -1,10 +1,13 @@
 import argparse
 import os
 
-from pandas import read_csv
 from tqdm import tqdm
 
-from src.data_handling import get_song_filename, get_youtube_url
+from src.data_handling import (
+    get_data_list_from_csv_with_ids,
+    get_song_filename,
+    get_youtube_url,
+)
 from src.file_metadata import prepare_metadata_tags, set_file_metadata_tags
 from src.youtube_download import get_audio_from_youtube
 
@@ -34,9 +37,9 @@ def main():
     print("Starting downloads into ", download_dir)
 
     # Read CSV file
-    music_df = read_csv(input_filepath)
+    music_df = get_data_list_from_csv_with_ids(input_filepath)
 
-    for _, row in tqdm(music_df.iterrows()):
+    for row in tqdm(music_df):
         song_filename = get_song_filename(row)
         youtube_url = get_youtube_url(row)
 
