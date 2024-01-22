@@ -11,7 +11,7 @@ mutagen = "1.45.1"
 pytube = "15.0.0"
 youtube-search = "2.1.2"
 tqdm = "4.66.1"
-pandas = "^2.1.4"
+pandas = "2.1.4"
 moviepy = "1.0.3"
 
 
