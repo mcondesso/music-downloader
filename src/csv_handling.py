@@ -5,6 +5,9 @@ from typing import Tuple, List
 
 def read_csv(file_path: str) -> Tuple[List[dict], str]:
     """This function loads the contents of a CSV file into a list of dicts."""
+    if not file_path.endswith(".csv"):
+        raise ValueError(f"'{file_path}' is not a CSV file.")
+
     data = []
     with open(file_path, "r", encoding="utf-8") as file:
         csv_reader = DictReader(file)
@@ -18,6 +21,9 @@ def read_csv(file_path: str) -> Tuple[List[dict], str]:
 
 def write_csv(file_path, data, fieldnames):
     """This function writes a list of dicts with the provided fieldnames into a CSV file."""
+    if not file_path.endswith(".csv"):
+        file_path += ".csv"
+
     with open(file_path, "w", newline="", encoding="utf-8") as file:
         csv_writer = DictWriter(file, fieldnames=fieldnames)
 
