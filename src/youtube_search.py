@@ -1,8 +1,6 @@
 import re
 from datetime import datetime
-from typing import List
-
-from pandas.core.series import Series
+from typing import Dict, List
 
 from src.data_handling import COLUMN_TRACK_DURATION, get_song_filename
 from youtube_search import YoutubeSearch
@@ -63,7 +61,7 @@ def _find_time_string_format(time_str: str) -> str:
     return time_format
 
 
-def find_best_matching_youtube_id(db_entry: Series, search_results: List[dict]) -> str:
+def find_best_matching_youtube_id(db_entry: Dict, search_results: List[dict]) -> str:
     for result in search_results:
         if _is_video_duration_acceptable(
             db_entry[COLUMN_TRACK_DURATION], result["Duration (s)"]
