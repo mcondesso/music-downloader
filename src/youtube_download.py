@@ -1,3 +1,4 @@
+"""Module for handling youtube download"""
 import os
 
 from moviepy.video.io.VideoFileClip import VideoFileClip
@@ -9,13 +10,19 @@ NUM_RETRIES = 5
 
 
 def get_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> str:
+    """This function downloads a song from youtube.
+
+    In a first attempt, we download the video and then extract the audio, as this
+    way proved to be more reliable.
+    If that fails, we attempt to download the audio stream directly from youtube.
+    """
     video_filepath = _download_mp4_video_from_youtube(youtube_url, output_dir, filename)
 
     video_processing_failed = False
     try:
         # Extract the audio file from the previously downloaded .mp4 file.
         audio_filepath = _extract_mp3_audio_from_mp4_video(video_filepath)
-    except Exception as error:
+    except KeyError as error:
         print(f"Error extracting mp3 from {video_filepath}: {error}")
         video_processing_failed = True
     finally:
@@ -36,6 +43,7 @@ def get_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> 
 def _download_mp4_video_from_youtube(
     youtube_url: str, output_dir: str, filename: str
 ) -> str:
+    """This function downloads an mp4 video stream from youtube."""
     # Ensure the filename contains the correct extension
     if not filename.endswith(FILE_EXTENSION_MP4):
         filename += FILE_EXTENSION_MP4
@@ -54,6 +62,7 @@ def _download_mp4_video_from_youtube(
 def _download_mp4_audio_from_youtube(
     youtube_url: str, output_dir: str, filename: str
 ) -> str:
+    """This function downloads an mp4 audio stream from youtube."""
     # Ensure the filename contains the correct extension
     if not filename.endswith(FILE_EXTENSION_MP4):
         filename += FILE_EXTENSION_MP4
@@ -71,6 +80,7 @@ def _download_mp4_audio_from_youtube(
 
 
 def _extract_mp3_audio_from_mp4_video(video_filepath: str) -> str:
+    """This function extracts the audio of an mp4 video into an mp3 file."""
     if not video_filepath.endswith(FILE_EXTENSION_MP4):
         raise ValueError(f"Input video is not in mp4 format: {video_filepath}")
 

@@ -1,9 +1,11 @@
+"""Module for handling youtube search."""
 import re
 from datetime import datetime
 from typing import Dict, List
 
-from src.data_handling import COLUMN_TRACK_DURATION, get_song_filename
 from youtube_search import YoutubeSearch
+
+from src.data_handling import COLUMN_TRACK_DURATION, get_song_filename
 
 DURATION_THRESHOLD = 0.05
 
@@ -13,6 +15,7 @@ class NoMatchingYoutubeVideoFoundError(Exception):
 
 
 def get_youtube_search_results(input_string: str, n_results: int = 5) -> List[dict]:
+    """This function searches a string on youtube, loads and sorts the best 5 potential matches"""
     # Make GET request to youtube
     raw_results = YoutubeSearch(
         search_terms=input_string, max_results=n_results
@@ -33,11 +36,13 @@ def get_youtube_search_results(input_string: str, n_results: int = 5) -> List[di
 
 
 def _youtube_result_views_to_integer(youtube_views: str) -> int:
+    """Function to convert the youtube result views format into an integer."""
     numeric_string = re.sub(r"\D", "", youtube_views)
     return int(numeric_string)
 
 
 def _youtube_result_duration_to_seconds(time_str: str) -> int:
+    """Function to convert the youtube result duration format into the number of seconds."""
     # Parse time string
     time_format = _find_time_string_format(time_str)
     time_obj = datetime.strptime(time_str, time_format)
@@ -49,6 +54,7 @@ def _youtube_result_duration_to_seconds(time_str: str) -> int:
 
 
 def _find_time_string_format(time_str: str) -> str:
+    """Function to find the format used by the youtube result duration."""
     match len(time_str.split(":")):
         case 1:
             time_format = "%S"
@@ -62,6 +68,11 @@ def _find_time_string_format(time_str: str) -> str:
 
 
 def find_best_matching_youtube_id(db_entry: Dict, search_results: List[dict]) -> str:
+    """Function to pick the best match out of the results.
+    
+    We accept the ordering provided by the Youtube API and then take the first video
+    with a duration that is close enough to the duration of the song on spotify.
+    """
     for result in search_results:
         if _is_video_duration_acceptable(
             db_entry[COLUMN_TRACK_DURATION], result["Duration (s)"]
@@ -73,5 +84,6 @@ def find_best_matching_youtube_id(db_entry: Dict, search_results: List[dict]) ->
 
 
 def _is_video_duration_acceptable(db_duration: int, result_duration: int) -> bool:
+    """Function to define the threshold whether a youtube stream duration is a valid match."""
     # If video duration matches down to DURATION_THRESHOLD, assume it's good
     return abs(db_duration - result_duration) / db_duration < DURATION_THRESHOLD

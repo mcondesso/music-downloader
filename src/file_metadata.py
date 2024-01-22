@@ -1,3 +1,4 @@
+"""Module for handling file metadata for the supported file types."""
 import os
 from typing import Dict
 
@@ -29,6 +30,8 @@ METADATA_CLASSES = {
 
 
 def prepare_metadata_tags(music_df_row: Dict, file_extension: str) -> dict:
+    """This function prepares the metadata tags to be written onto a
+    music file, depending on the file format."""
     artist_tag = METADATA_TAGS[file_extension]["artist"]
     title_tag = METADATA_TAGS[file_extension]["title"]
 
@@ -47,6 +50,7 @@ def prepare_metadata_tags(music_df_row: Dict, file_extension: str) -> dict:
 
 
 def set_file_metadata_tags(filepath: str, metadata_tags: dict):
+    """This function sets the provided metadata tags onto a file."""
     file_extension = os.path.splitext(filepath)[1]
     tag_handling_class = METADATA_CLASSES[file_extension]
     tag_dict = tag_handling_class(filepath)

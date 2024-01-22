@@ -1,15 +1,18 @@
+"""This script parses the output of exportify and 
+creates a csv with youtube IDs for the found songs."""
 import argparse
 import os
+import sys
 
 from tqdm import tqdm
 
+from src.csv_handling import write_csv
 from src.data_handling import (
     COLUMN_YOUTUBE_ID,
     get_data_list_from_exportify_csv,
     get_song_filename,
-    write_csv,
 )
-from src.youtube_search import (
+from src.youtube_id_search import (
     NoMatchingYoutubeVideoFoundError,
     find_best_matching_youtube_id,
     get_youtube_search_results,
@@ -17,6 +20,7 @@ from src.youtube_search import (
 
 
 def get_output_filename(input_filename: str, with_ids: bool) -> str:
+    """Generate output filename for the CSV files: with and without Youtube IDs"""
     # Split the path into directory and file components
     directory, file_name = os.path.split(input_filename)
 
@@ -31,6 +35,8 @@ def get_output_filename(input_filename: str, with_ids: bool) -> str:
 
 
 def main():
+    """Parse the CSV exported from exportify, find song youtube IDs and
+    write the results into CSVs"""
     # Arg parsing
     parser = argparse.ArgumentParser(
         description="Script to find Youtube IDs from an Exportify CSV."
@@ -41,7 +47,7 @@ def main():
     args = parser.parse_args()
     if not args.file_path:
         print("Use -f to specify the path to the CSV file.")
-        exit(1)
+        sys.exit(1)
     else:
         input_filepath = args.file_path
 

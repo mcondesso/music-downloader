@@ -1,5 +1,7 @@
+"""This script takes the previously generated csv with youtube IDs and downloads the songs."""
 import argparse
 import os
+import sys
 
 from tqdm import tqdm
 
@@ -13,6 +15,7 @@ from src.youtube_download import get_audio_from_youtube
 
 
 def main():
+    """Read the provided CSV with Youtube IDs and attempt to download the songs."""
     # Arg parsing
     parser = argparse.ArgumentParser(
         description="Script to download audio from youtube videos."
@@ -25,7 +28,7 @@ def main():
     args = parser.parse_args()
     if not args.file_path:
         print("Use -f to specify the path to the CSV file.")
-        exit(1)
+        sys.exit(1)
     else:
         input_filepath = args.file_path
 
@@ -59,7 +62,7 @@ def main():
         )
         set_file_metadata_tags(filepath=output_filepath, metadata_tags=metadata_tags)
 
-    print(f"Successfully finished song downloads.\n")
+    print("Successfully finished song downloads.\n")
 
 
 if __name__ == "__main__":
