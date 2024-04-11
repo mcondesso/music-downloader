@@ -38,7 +38,7 @@ def get_youtube_search_results(input_string: str, n_results: int = 5) -> List[di
 def _youtube_result_views_to_integer(youtube_views: str) -> int:
     """Function to convert the youtube result views format into an integer."""
     numeric_string = re.sub(r"\D", "", youtube_views)
-    return int(numeric_string)
+    return int(numeric_string if numeric_string else 0)
 
 
 def _youtube_result_duration_to_seconds(time_str: str) -> int:
