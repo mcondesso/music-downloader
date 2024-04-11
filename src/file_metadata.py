@@ -5,7 +5,12 @@ from typing import Dict
 from mutagen.easyid3 import EasyID3
 from mutagen.mp4 import MP4
 
-from src.data_handling import COLUMN_ARTIST_NAME, COLUMN_TRACK_NAME
+from src.data_handling import (
+    COLUMN_ARTIST_NAME,
+    COLUMN_TRACK_NAME,
+    COLUMN_GENRES,
+    COLUMN_TEMPO,
+)
 
 FILE_EXTENSION_MP3 = ".mp3"
 FILE_EXTENSION_MP4 = ".mp4"
@@ -16,10 +21,14 @@ METADATA_TAGS = {
     FILE_EXTENSION_MP3: {
         "artist": "artist",
         "title": "title",
+        "genre": "genre",
+        "tempo": "bpm",
     },
     FILE_EXTENSION_MP4: {
         "artist": "©ART",
         "title": "©nam",
+        "genre": "©gen",
+        "tempo": "tmpo",
     },
 }
 
@@ -34,6 +43,8 @@ def prepare_metadata_tags(music_df_row: Dict, file_extension: str) -> dict:
     music file, depending on the file format."""
     artist_tag = METADATA_TAGS[file_extension]["artist"]
     title_tag = METADATA_TAGS[file_extension]["title"]
+    genre_tag = METADATA_TAGS[file_extension]["genre"]
+    tempo_tag = METADATA_TAGS[file_extension]["tempo"]
 
     if file_extension == FILE_EXTENSION_MP4:
         # .mp4 files do not support a list of values for Contributing Artist
@@ -46,6 +57,8 @@ def prepare_metadata_tags(music_df_row: Dict, file_extension: str) -> dict:
     return {
         artist_tag: artist_names,
         title_tag: music_df_row[COLUMN_TRACK_NAME],
+        genre_tag: music_df_row[COLUMN_GENRES],
+        tempo_tag:  [round(float(music_df_row[COLUMN_TEMPO]))],
     }
 
 

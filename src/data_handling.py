@@ -9,6 +9,8 @@ COLUMN_ARTIST_NAME = "Artist Name(s)"
 COLUMN_TRACK_NAME = "Track Name"
 REQUIRED_COLUMNS = [COLUMN_ARTIST_NAME, COLUMN_TRACK_NAME]
 COLUMN_TRACK_DURATION_EXPORTIFY_ALTERNATIVES = {"Track Duration (ms)", "Duration (ms)"}
+COLUMN_GENRES = "Genres"
+COLUMN_TEMPO = "Tempo"
 COLUMN_TRACK_DURATION = "Duration (s)"
 COLUMN_YOUTUBE_ID = "Youtube ID"
 
@@ -36,7 +38,12 @@ def get_data_list_from_exportify_csv(filepath: str) -> Tuple[List[dict], List[st
             raise RequiredColumnNameNotFoundError(f"Column '{col}' is missing")
 
     # Select only relevant columns
-    column_names = REQUIRED_COLUMNS + [track_duration_col]
+    column_names = REQUIRED_COLUMNS + [
+        track_duration_col,
+        COLUMN_GENRES,
+        COLUMN_TEMPO,
+    ]
+
     selected_df = []
     for row in data:
         # Copy over the selected columns
@@ -53,7 +60,11 @@ def get_data_list_from_exportify_csv(filepath: str) -> Tuple[List[dict], List[st
 
         selected_df.append(selected_row)
 
-    final_column_names = REQUIRED_COLUMNS + [COLUMN_TRACK_DURATION]
+    final_column_names = REQUIRED_COLUMNS + [
+        COLUMN_TRACK_DURATION,
+        COLUMN_GENRES,
+        COLUMN_TEMPO,
+    ]
 
     return selected_df, final_column_names
 
