@@ -47,10 +47,7 @@ def prepare_metadata_tags(music_df_row: Dict, file_extension: str) -> dict:
     tempo_tag = METADATA_TAGS[file_extension]["tempo"]
 
     if file_extension == FILE_EXTENSION_MP4:
-        # .mp4 files do not support a list of values for Contributing Artist
-        # So we have to provide them as a single string, see
-        # https://github.com/quodlibet/mutagen/issues/548
-        artist_names = music_df_row[COLUMN_ARTIST_NAME]
+        artist_names = music_df_row[COLUMN_ARTIST_NAME].replace(", ", "/")
     else:
         artist_names = music_df_row[COLUMN_ARTIST_NAME].split(",")
 
