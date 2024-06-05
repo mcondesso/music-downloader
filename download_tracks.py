@@ -34,7 +34,8 @@ def main():
 
     # Create directory with the same name as the input file,
     # this is the destination folder for the downloads
-    download_dir, _ = os.path.splitext(input_filepath)
+    input_song_list_file, _ = os.path.splitext(input_filepath)
+    download_dir = input_song_list_file.removesuffix("_with_ids")
     os.makedirs(download_dir, exist_ok=True)
 
     print("Starting downloads into ", download_dir)
