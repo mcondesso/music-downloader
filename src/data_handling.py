@@ -93,11 +93,26 @@ def _get_track_duration_column_name(field_names: List) -> str:
     )
 
 
-def get_song_filename(music_row: Dict) -> str:
-    """Helper function to generate the search string or filename for a song."""
+def get_song_search_string(music_row: Dict) -> str:
+    """Helper function to generate the search string a song."""
     return f"{music_row[COLUMN_ARTIST_NAME]} - {music_row[COLUMN_TRACK_NAME]}"
 
 
 def get_youtube_url(music_row: Dict) -> str:
     """Helper function to generate the youtube URL for a song."""
     return f"https://www.youtube.com/watch?v={music_row[COLUMN_YOUTUBE_ID]}"
+
+
+def get_song_filename(music_row: Dict) -> str:
+    """Helper function to generate the filename for a song,
+    escaping slashes."""
+    search_string = get_song_search_string(music_row=music_row)
+    return sanitize_filename(search_string)
+
+
+def sanitize_filename(filename: str) -> str:
+    """Replaces invalid chars in filenames with underscores."""
+    invalid_chars = r'\/:*?"<>|'
+    translation_table = str.maketrans(invalid_chars, "_" * len(invalid_chars))
+    sanitized = filename.translate(translation_table)
+    return sanitized

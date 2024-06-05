@@ -10,7 +10,7 @@ from src.csv_handling import write_csv
 from src.data_handling import (
     COLUMN_YOUTUBE_ID,
     get_data_list_from_exportify_csv,
-    get_song_filename,
+    get_song_search_string,
 )
 from src.youtube_id_search import (
     NoMatchingYoutubeVideoFoundError,
@@ -60,7 +60,7 @@ def main():
     row_list_missing_ids = list()
 
     for row in tqdm(music_df):
-        search_string = get_song_filename(row)
+        search_string = get_song_search_string(row)
         search_results = get_youtube_search_results(search_string)
         try:
             video_id = find_best_matching_youtube_id(

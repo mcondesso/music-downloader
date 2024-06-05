@@ -5,7 +5,7 @@ from typing import Dict, List
 
 from youtube_search import YoutubeSearch
 
-from src.data_handling import COLUMN_TRACK_DURATION, get_song_filename
+from src.data_handling import COLUMN_TRACK_DURATION, get_song_search_string
 
 DURATION_THRESHOLD = 0.05
 
@@ -79,7 +79,7 @@ def find_best_matching_youtube_id(db_entry: Dict, search_results: List[dict]) ->
         ):
             return result["ID"]
     raise NoMatchingYoutubeVideoFoundError(
-        f"Unable to find a matching youtube video for {get_song_filename(db_entry)}"
+        f"Unable to find a matching youtube video for {get_song_search_string(db_entry)}"
     )
 
 
