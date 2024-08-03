@@ -8,7 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 mutagen = "1.45.1"
-pytube = "15.0.0"
+pytube = { git = "https://github.com/mcondesso/pytube.git", branch = "15.0.0-regex-bugfix" }
 youtube-search = "2.1.2"
 tqdm = "4.66.1"
 moviepy = "1.0.3"
