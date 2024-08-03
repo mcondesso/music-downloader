@@ -16,18 +16,21 @@ def get_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> 
     way proved to be more reliable.
     If that fails, we attempt to download the audio stream directly from youtube.
     """
-    video_filepath = _download_mp4_video_from_youtube(youtube_url, output_dir, filename)
+    mp4_filepath = _download_mp4_video_from_youtube(youtube_url, output_dir, filename)
 
+    if _is_mp4_file_audio_only(mp4_filepath):
+        return mp4_filepath
+
+    # If mp4 file contains video, we have to extract the audio track
     video_processing_failed = False
     try:
         # Extract the audio file from the previously downloaded .mp4 file.
-        audio_filepath = _extract_mp3_audio_from_mp4_video(video_filepath)
+        audio_filepath = _extract_audio_from_mp4_video(mp4_filepath)
     except KeyError as error:
-        print(f"Error extracting mp3 from {video_filepath}: {error}")
+        print(f"Error extracting mp3 from {mp4_filepath}: {error}")
         video_processing_failed = True
     finally:
-        if os.path.exists(video_filepath):
-            os.remove(video_filepath)
+        os.remove(mp4_filepath)
 
     # In case of error, download the audio directly using the only_audio=True flag. This is not
     # the default approach because this can lead to corrupted downloaded files, so we only use
@@ -79,8 +82,8 @@ def _download_mp4_audio_from_youtube(
     return os.path.join(output_dir, filename)
 
 
-def _extract_mp3_audio_from_mp4_video(video_filepath: str) -> str:
-    """This function extracts the audio of an mp4 video into an mp3 file."""
+def _extract_audio_from_mp4_video(video_filepath: str) -> str:
+    """This function extracts the audio of an mp4 video."""
     if not video_filepath.endswith(FILE_EXTENSION_MP4):
         raise ValueError(f"Input video is not in mp4 format: {video_filepath}")
 
@@ -92,3 +95,17 @@ def _extract_mp3_audio_from_mp4_video(video_filepath: str) -> str:
     video_clip.close()
 
     return output_filename
+
+
+def _is_mp4_file_audio_only(mp4_filepath: str) -> bool:
+    """This function checks whether an mp4 file is audio only."""
+    try:
+        VideoFileClip(mp4_filepath)
+    except KeyError as error:
+        if "video_fps" in str(error):
+            # Error thrown when mp4 file is already audio only
+            return True
+        else:
+            # Reraise unknown KeyError
+            raise
+    return False
