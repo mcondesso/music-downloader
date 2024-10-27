@@ -2,7 +2,7 @@
 import os
 
 from moviepy.video.io.VideoFileClip import VideoFileClip
-from pytube import YouTube
+from pytubefix import YouTube
 
 from src.file_metadata import FILE_EXTENSION_MP3, FILE_EXTENSION_MP4
 
