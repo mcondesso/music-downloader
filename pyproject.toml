@@ -8,7 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 mutagen = "1.45.1"
-pytubefix = "8.1.1"
+pytubefix = { git = "https://github.com/felipeucelli/pytubefix.git", branch = "botGuard" }
 youtube-search = "2.1.2"
 tqdm = "4.66.1"
 moviepy = "1.0.3"
