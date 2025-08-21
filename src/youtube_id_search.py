@@ -8,6 +8,7 @@ from youtube_search import YoutubeSearch
 from src.data_handling import COLUMN_TRACK_DURATION, get_song_search_string
 
 DURATION_THRESHOLD = 0.05
+FALLBACK_DURATION_THRESHOLD = 0.50  # 50% threshold for fallback matching
 
 
 class NoMatchingYoutubeVideoFoundError(Exception):
@@ -70,20 +71,39 @@ def _find_time_string_format(time_str: str) -> str:
 def find_best_matching_youtube_id(db_entry: Dict, search_results: List[dict]) -> str:
     """Function to pick the best match out of the results.
     
-    We accept the ordering provided by the Youtube API and then take the first video
-    with a duration that is close enough to the duration of the song on spotify.
+    We first try to find a video with duration close to the Spotify track (5% threshold).
+    If no exact match is found, we fall back to the best available match within 50% threshold,
+    prioritizing by YouTube's relevance ranking.
     """
+    db_duration = db_entry[COLUMN_TRACK_DURATION]
+    
+    # First pass: try to find exact matches within strict threshold
     for result in search_results:
-        if _is_video_duration_acceptable(
-            db_entry[COLUMN_TRACK_DURATION], result["Duration (s)"]
-        ):
+        if _is_video_duration_acceptable(db_duration, result["Duration (s)"], strict=True):
             return result["ID"]
+    
+    # Second pass: find fallback matches within relaxed threshold
+    fallback_candidates = []
+    for result in search_results:
+        if _is_video_duration_acceptable(db_duration, result["Duration (s)"], strict=False):
+            fallback_candidates.append(result)
+    
+    if fallback_candidates:
+        # Return the first (most relevant) fallback candidate
+        return fallback_candidates[0]["ID"]
+    
     raise NoMatchingYoutubeVideoFoundError(
         f"Unable to find a matching youtube video for {get_song_search_string(db_entry)}"
     )
 
 
-def _is_video_duration_acceptable(db_duration: int, result_duration: int) -> bool:
-    """Function to define the threshold whether a youtube stream duration is a valid match."""
-    # If video duration matches down to DURATION_THRESHOLD, assume it's good
-    return abs(db_duration - result_duration) / db_duration < DURATION_THRESHOLD
+def _is_video_duration_acceptable(db_duration: int, result_duration: int, strict: bool = True) -> bool:
+    """Function to define the threshold whether a youtube stream duration is a valid match.
+    
+    Args:
+        db_duration: Duration from Spotify track in seconds
+        result_duration: Duration from YouTube video in seconds  
+        strict: If True, use strict 5% threshold. If False, use 50% fallback threshold.
+    """
+    threshold = DURATION_THRESHOLD if strict else FALLBACK_DURATION_THRESHOLD
+    return abs(db_duration - result_duration) / db_duration < threshold
