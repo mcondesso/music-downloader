@@ -44,14 +44,32 @@ def _youtube_result_views_to_integer(youtube_views: str) -> int:
 
 def _youtube_result_duration_to_seconds(time_str: str) -> int:
     """Function to convert the youtube result duration format into the number of seconds."""
+    normalized_time_str = _get_normalized_time_str(time_str)
     # Parse time string
-    time_format = _find_time_string_format(time_str)
-    time_obj = datetime.strptime(time_str, time_format)
+    time_format = _find_time_string_format(normalized_time_str)
+    time_obj = datetime.strptime(normalized_time_str, time_format)
 
     # Calculate total duration in seconds
     total_seconds = time_obj.hour * 3600 + time_obj.minute * 60 + time_obj.second
 
     return total_seconds
+
+
+def _get_normalized_time_str(time_str):
+    # Handle fractional seconds: only remove if it's clearly fractional (after seconds in a time format)
+    # Look for pattern like "1:23.456" or "45.123" where the decimal part is likely fractional seconds
+    # But preserve "8.51" as "8:51" (minutes:seconds)
+    # If there's a decimal followed by 3+ digits, it's likely fractional seconds
+    if re.search(r'\.\d{3,}', time_str):
+        time_str = re.sub(r'\.\d+.*$', '', time_str)
+    # If format is like "XX.Y" where Y > 59, it's likely fractional seconds
+    elif re.search(r'\.\d{1,2}$', time_str):
+        match = re.search(r'\.(\d{1,2})$', time_str)
+        if match and int(match.group(1)) > 59:
+            time_str = re.sub(r'\.\d+.*$', '', time_str)
+    # Now normalize remaining dot separators to colon separators (e.g., "8.51" -> "8:51")
+    normalized_time_str = time_str.replace('.', ':')
+    return normalized_time_str
 
 
 def _find_time_string_format(time_str: str) -> str:
