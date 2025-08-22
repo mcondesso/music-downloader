@@ -24,6 +24,12 @@ def main():
     parser.add_argument(
         "file_path", help="Path to a CSV file with the Youtube IDs", type=str
     )
+    
+    parser.add_argument(
+        "--ait", "--artist-in-title", 
+        action="store_true", 
+        help="Include artist name in track title metadata (format: 'ARTIST - TRACK TITLE')"
+    )
 
     args = parser.parse_args()
     if not args.file_path:
@@ -59,7 +65,7 @@ def main():
         # Set Metadata Tags for song title and artist
         file_extension = os.path.splitext(output_filepath)[1]
         metadata_tags = prepare_metadata_tags(
-            music_df_row=row, file_extension=file_extension
+            music_df_row=row, file_extension=file_extension, artist_in_title=args.ait
         )
         set_file_metadata_tags(filepath=output_filepath, metadata_tags=metadata_tags)
 
