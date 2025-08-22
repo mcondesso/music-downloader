@@ -10,6 +10,7 @@ from src.data_handling import (
     COLUMN_TRACK_NAME,
     COLUMN_GENRES,
     COLUMN_TEMPO,
+    get_song_search_string,
 )
 
 FILE_EXTENSION_MP3 = ".mp3"
@@ -38,7 +39,7 @@ METADATA_CLASSES = {
 }
 
 
-def prepare_metadata_tags(music_df_row: Dict, file_extension: str) -> dict:
+def prepare_metadata_tags(music_df_row: Dict, file_extension: str, artist_in_title: bool = False) -> dict:
     """This function prepares the metadata tags to be written onto a
     music file, depending on the file format."""
     artist_tag = METADATA_TAGS[file_extension]["artist"]
@@ -51,9 +52,15 @@ def prepare_metadata_tags(music_df_row: Dict, file_extension: str) -> dict:
     else:
         artist_names = music_df_row[COLUMN_ARTIST_NAME].split(",")
 
+    # Determine the title based on artist_in_title flag
+    if artist_in_title:
+        title = get_song_search_string(music_df_row)
+    else:
+        title = music_df_row[COLUMN_TRACK_NAME]
+
     return {
         artist_tag: artist_names,
-        title_tag: music_df_row[COLUMN_TRACK_NAME],
+        title_tag: title,
         genre_tag: music_df_row[COLUMN_GENRES],
         tempo_tag:  [round(float(music_df_row[COLUMN_TEMPO]))],
     }
