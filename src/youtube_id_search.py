@@ -86,11 +86,7 @@ def find_best_matching_youtube_id(db_entry: Dict, search_results: List[dict]) ->
     fallback_candidates = []
     for result in search_results:
         if _is_video_duration_acceptable(db_duration, result["Duration (s)"], strict=False):
-            fallback_candidates.append(result)
-    
-    if fallback_candidates:
-        # Return the first (most relevant) fallback candidate
-        return fallback_candidates[0]["ID"]
+            return result["ID"]
     
     raise NoMatchingYoutubeVideoFoundError(
         f"Unable to find a matching youtube video for {get_song_search_string(db_entry)}"
