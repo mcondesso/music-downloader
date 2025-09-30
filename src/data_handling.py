@@ -13,6 +13,8 @@ COLUMN_GENRES = "Genres"
 COLUMN_TEMPO = "Tempo"
 COLUMN_TRACK_DURATION = "Duration (s)"
 COLUMN_YOUTUBE_ID = "Youtube ID"
+COLUMN_ABSOLUTE_FILEPATH = "Absolute Filepath"
+COLUMN_BIT_RATE = "Bit rate (kbps)"
 
 
 class RequiredColumnNameNotFoundError(Exception):
