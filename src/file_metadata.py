@@ -101,11 +101,17 @@ def prepare_metadata_tags(
     else:
         title = music_df_row[COLUMN_TRACK_NAME]
 
+    bpm = music_df_row[COLUMN_TEMPO]
+    if bpm:
+        bpm = [round(float(bpm))]
+    else:
+        bpm = ['']
+
     return {
         artist_tag: artist_names,
         title_tag: title,
         genre_tag: music_df_row[COLUMN_GENRES],
-        tempo_tag: [round(float(music_df_row[COLUMN_TEMPO]))],
+        tempo_tag: [bpm],
     }
 
 
