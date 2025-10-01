@@ -17,19 +17,7 @@ from src.file_metadata import (
     FILE_EXTENSION_MP3,
     FILE_EXTENSION_MP4,
 )
-
-
-def scan_directory_for_audio_files(directory):
-    """
-    Recursively scan a directory for non-MP3 audio files.
-    Returns generator of file paths.
-    """
-    audio_extensions = {".mp4"}
-    for root, _, files in os.walk(directory):
-        for file in files:
-            ext = os.path.splitext(file)[1].lower()
-            if ext in audio_extensions:
-                yield os.path.join(root, file)
+from src.file_handling import scan_directory_for_audio_files
 
 
 def convert_to_mp3(input_path, output_path, bitrate="128k"):
@@ -98,11 +86,11 @@ def main():
     bitrate = args.bitrate
     delete_originals = args.delete_originals
     print(f"Scanning directory: {directory}")
-    audio_files = list(scan_directory_for_audio_files(directory))
+    audio_files = list(scan_directory_for_audio_files(directory, {FILE_EXTENSION_MP4}))
     print(f"Found {len(audio_files)} non-MP3 audio files.")
     for filepath in tqdm(audio_files):
         song_filename = os.path.basename(filepath)
-        print(f"Converting: {song_filename}")
+        print(f"\nConverting: {song_filename}")
         mp3_path = os.path.splitext(filepath)[0] + ".mp3"
         if os.path.exists(mp3_path):
             continue  # Skip if MP3 already exists

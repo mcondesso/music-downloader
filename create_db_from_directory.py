@@ -18,12 +18,13 @@ from src.data_handling import (
     COLUMN_YOUTUBE_ID,
     get_song_search_string,
 )
+from src.file_handling import scan_directory_for_audio_files
 from src.youtube_id_search import (
     NoMatchingYoutubeVideoFoundError,
     find_best_matching_youtube_id,
     get_youtube_search_results,
 )
-from src.file_metadata import extract_metadata_from_file
+from src.file_metadata import extract_metadata_from_file, FILE_EXTENSION_MP3, FILE_EXTENSION_MP4
 
 
 def get_output_filename(directory: str) -> str:
@@ -31,17 +32,6 @@ def get_output_filename(directory: str) -> str:
     directory = os.path.abspath(directory)
     name = os.path.basename(directory.rstrip(os.sep))
     return os.path.join(directory, f"{name}_db.csv")
-
-
-def scan_directory_for_audio_files(directory: str):
-    """Recursively scan directory for audio files."""
-    audio_extensions = {".mp3", ".mp4"}
-    for root, _, files in os.walk(directory):
-        for file in files:
-            ext = os.path.splitext(file)[1].lower()
-            if ext in audio_extensions:
-                yield os.path.join(root, file)
-
 
 def main():
     """
@@ -58,7 +48,8 @@ def main():
         sys.exit(1)
     directory = args.directory
     print(f"Scanning directory: {directory}")
-    audio_files = list(scan_directory_for_audio_files(directory))
+    extensions = {FILE_EXTENSION_MP3, FILE_EXTENSION_MP4}
+    audio_files = list(scan_directory_for_audio_files(directory, extensions))
     print(f"Found {len(audio_files)} audio files.")
     rows = []
     for filepath in tqdm(audio_files):
