@@ -43,3 +43,4 @@ If you have a folder of music files and want to generate a CSV database from the
 
 1. [Install poetry](https://python-poetry.org/docs/#installing-with-the-official-installer) for package management
 2. `poetry install`
+3. `sudo apt-get install ffmpeg` to be able run `convert_tracks_to_mp3.py`
