@@ -1,7 +1,6 @@
 """Module for handling file metadata for the supported file types."""
 
 import os
-from typing import Dict
 
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
@@ -81,7 +80,7 @@ def extract_metadata_from_file(filepath: str) -> dict:
 
 
 def prepare_metadata_tags(
-    music_df_row: Dict, file_extension: str, artist_in_title: bool = False
+    music_df_row: dict, file_extension: str, artist_in_title: bool = False
 ) -> dict:
     """This function prepares the available metadata tags to be written onto a
     music file, depending on the file format."""
