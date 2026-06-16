@@ -83,36 +83,39 @@ def extract_metadata_from_file(filepath: str) -> dict:
 def prepare_metadata_tags(
     music_df_row: Dict, file_extension: str, artist_in_title: bool = False
 ) -> dict:
-    """This function prepares the metadata tags to be written onto a
+    """This function prepares the available metadata tags to be written onto a
     music file, depending on the file format."""
     artist_tag = METADATA_TAGS[file_extension]["artist"]
     title_tag = METADATA_TAGS[file_extension]["title"]
     genre_tag = METADATA_TAGS[file_extension]["genre"]
     tempo_tag = METADATA_TAGS[file_extension]["tempo"]
 
+    metadata_tags = {}
+
     if file_extension == FILE_EXTENSION_MP4:
         artist_names = music_df_row[COLUMN_ARTIST_NAME].replace(", ", "/")
     else:
         artist_names = music_df_row[COLUMN_ARTIST_NAME].split(",")
+    
+    if artist_names:
+        metadata_tags[artist_tag] = artist_names
 
     # Determine the title based on artist_in_title flag
     if artist_in_title:
         title = get_song_search_string(music_df_row)
     else:
         title = music_df_row[COLUMN_TRACK_NAME]
+    
+    if title:
+        metadata_tags[title_tag] = title
 
-    bpm = music_df_row[COLUMN_TEMPO]
-    if bpm:
-        bpm = [round(float(bpm))]
-    else:
-        bpm = [""]
+    if genre := music_df_row.get(COLUMN_GENRES):
+        metadata_tags[genre_tag] = genre
 
-    return {
-        artist_tag: artist_names,
-        title_tag: title,
-        genre_tag: music_df_row[COLUMN_GENRES],
-        tempo_tag: bpm,
-    }
+    if bpm := music_df_row.get(COLUMN_TEMPO):
+        metadata_tags[tempo_tag] = [round(float(bpm))]
+
+    return metadata_tags
 
 
 def set_file_metadata_tags(filepath: str, metadata_tags: dict):

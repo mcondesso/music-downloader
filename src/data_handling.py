@@ -77,7 +77,7 @@ def get_data_list_from_csv_with_ids(filepath: str) -> List[dict]:
     data, total_colnames = read_csv(filepath)
 
     # Validate that other required columns are present
-    for col in REQUIRED_COLUMNS + [COLUMN_TRACK_DURATION, COLUMN_YOUTUBE_ID]:
+    for col in REQUIRED_COLUMNS + [COLUMN_YOUTUBE_ID]:
         if col not in total_colnames:
             raise RequiredColumnNameNotFoundError(f"Column '{col}' is missing")
 
