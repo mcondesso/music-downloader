@@ -235,7 +235,7 @@ def extract_youtube_id(text: str):
     return match.group(1) if match else None
 
 st.set_page_config(page_title="Music Downloader", page_icon="🎵", layout="wide")
-st.title("🎵 Music Downloader")
+st.title("Music Downloader")
 st.caption("Turn an Exportify CSV export into a folder of tagged MP3s.")
 
 uploader_col, destination_col = st.columns(2)
@@ -350,9 +350,22 @@ def render_unmatched_tracks_panel():
                 st.error(f"Couldn't find a Youtube video ID in that link for '{label}'.")
 
 
-start_col, *step_cols = st.columns(4)
-with start_col:
-    bitrate = st.selectbox("MP3 bitrate", ["128k", "192k", "256k", "320k"], index=0)
+options_col, steps_col = st.columns([1, 3])
+with options_col:
+    bitrate_label_col, bitrate_select_col = st.columns([1, 4], vertical_alignment="center")
+    with bitrate_label_col:
+        st.markdown(
+            '<p style="font-size: 0.875rem; font-weight: 400; margin: -16px 0 0 0; white-space: nowrap;">'
+            "MP3 bitrate</p>",
+            unsafe_allow_html=True,
+        )
+    with bitrate_select_col:
+        bitrate = st.selectbox(
+            "MP3 bitrate",
+            ["128k", "192k", "256k", "320k"],
+            index=0,
+            label_visibility="collapsed",
+        )
     artist_col, delete_col = st.columns(2)
     with artist_col:
         artist_in_title = st.checkbox(
@@ -365,24 +378,24 @@ with start_col:
             "Delete original files after MP3 conversion", value=True
         )
 
-step_containers = []  # (container_key, label_placeholder)
-step_clicked = []
-for col, name, precondition_state in zip(step_cols, STEPS, STEP_PRECONDITION_STATES):
-    with col:
-        container_key = f"step_card_{name.lower()}"
-        with st.container(key=container_key, border=False):
-            label_placeholder = st.empty()
-            eligible = count_tracks_in_state(precondition_state) > 0
-            step_clicked.append(
-                st.button("Run", key=f"run_{name.lower()}", disabled=not eligible, width="stretch")
-            )
-        step_containers.append((container_key, label_placeholder))
-        if name == "Match":
-            render_unmatched_tracks_panel()
-run_matching_clicked, run_downloading_clicked, run_converting_clicked = step_clicked
+with steps_col:
+    step_cols = st.columns(3)
+    step_containers = []  # (container_key, label_placeholder)
+    step_clicked = []
+    for col, name, precondition_state in zip(step_cols, STEPS, STEP_PRECONDITION_STATES):
+        with col:
+            container_key = f"step_card_{name.lower()}"
+            with st.container(key=container_key, border=False):
+                label_placeholder = st.empty()
+                eligible = count_tracks_in_state(precondition_state) > 0
+                step_clicked.append(
+                    st.button("Run", key=f"run_{name.lower()}", disabled=not eligible, width="stretch")
+                )
+            step_containers.append((container_key, label_placeholder))
+            if name == "Match":
+                render_unmatched_tracks_panel()
+    run_matching_clicked, run_downloading_clicked, run_converting_clicked = step_clicked
 
-_, start_button_col = st.columns([1, 3])
-with start_button_col:
     start = st.button("Start", type="primary", disabled=not uploaded_file, width="stretch")
 
 
