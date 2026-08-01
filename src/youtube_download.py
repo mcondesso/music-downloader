@@ -1,6 +1,7 @@
 """Module for handling youtube download"""
 import os
 
+from moviepy.video.io.ffmpeg_reader import ffmpeg_parse_infos
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from pytubefix import YouTube
 
@@ -99,13 +100,4 @@ def _extract_audio_from_mp4_video(video_filepath: str) -> str:
 
 def _is_mp4_file_audio_only(mp4_filepath: str) -> bool:
     """This function checks whether an mp4 file is audio only."""
-    try:
-        VideoFileClip(mp4_filepath)
-    except KeyError as error:
-        if "video_fps" in str(error):
-            # Error thrown when mp4 file is already audio only
-            return True
-        else:
-            # Reraise unknown KeyError
-            raise
-    return False
+    return not ffmpeg_parse_infos(mp4_filepath)["video_found"]
