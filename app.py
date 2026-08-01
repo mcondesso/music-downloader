@@ -14,6 +14,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import spotipy
 import streamlit as st
 from pytubefix.exceptions import BotDetection
 
@@ -31,6 +32,7 @@ from src.data_handling import (
     get_song_filename,
     get_song_search_string,
     get_youtube_url,
+    sanitize_filename,
 )
 from src.file_handling import scan_directory_for_audio_files
 from src.file_metadata import (
@@ -38,6 +40,15 @@ from src.file_metadata import (
     SUPPORTED_FORMATS,
     prepare_metadata_tags,
     set_file_metadata_tags,
+)
+from src.spotify_export import (
+    SPOTIFY_CLIENT_ID,
+    build_login_url,
+    complete_login,
+    export_playlist_to_csv,
+    get_cached_spotify_client,
+    list_user_playlists,
+    logout,
 )
 from src.youtube_download import get_audio_from_youtube
 from src.youtube_id_search import (
@@ -97,6 +108,22 @@ TRACK_CARD_STYLE = (
     "opacity: 0.85; white-space: nowrap; }"
     ".genre-summary { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; align-items: center; "
     "padding-top: 8px; }"
+    "</style>"
+)
+
+SPOTIFY_SIDEBAR_STYLE = (
+    "<style>"
+    ".spotify-login-link { display: inline-block; width: 100%; text-align: center; "
+    "background-color: #1DB954; color: white; font-weight: 600; font-size: 0.85rem; "
+    "padding: 8px 0; border-radius: 999px; text-decoration: none; margin-bottom: 12px; }"
+    ".spotify-login-link:hover { background-color: #1ed760; }"
+    ".playlist-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; "
+    "border-bottom: 1px solid rgba(128,128,128,0.15); }"
+    ".playlist-row img { width: 36px; height: 36px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }"
+    ".playlist-row-placeholder { width: 36px; height: 36px; border-radius: 4px; flex-shrink: 0; "
+    "background-color: rgba(128,128,128,0.2); }"
+    ".playlist-row-name { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; "
+    "white-space: nowrap; flex: 1; }"
     "</style>"
 )
 
@@ -236,21 +263,7 @@ def extract_youtube_id(text: str):
 
 st.set_page_config(page_title="Music Downloader", page_icon="🎵", layout="wide")
 st.title("Music Downloader")
-st.caption("Turn an Exportify CSV export into a folder of tagged MP3s.")
-
-uploader_col, destination_col = st.columns(2)
-with uploader_col:
-    uploaded_file = st.file_uploader(
-        "CSV file",
-        type="csv",
-        help="An Exportify export, or a CSV that already has a 'Youtube ID' column.",
-    )
-with destination_col:
-    destination_root = st.text_input(
-        "Save music to",
-        value=str(Path.home() / "Music" / "MusicDownloads"),
-        help="Each playlist gets its own folder (named after the CSV) inside here.",
-    )
+st.caption("Turn a Spotify playlist (or an Exportify CSV export) into a folder of tagged MP3s.")
 
 
 def build_tracks(csv_path: str):
@@ -293,13 +306,115 @@ def sync_states_from_disk(download_dir: str):
             row["State"] = STATE_DOWNLOADED
 
 
-if uploaded_file is not None and st.session_state.get("uploaded_file_id") != uploaded_file.file_id:
+def activate_csv_source(csv_bytes: bytes, csv_name: str, source_id: str):
+    """Load a CSV into session state. Shared by the file uploader and the Spotify
+    picker below so the rest of the pipeline doesn't care which one supplied it."""
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
-        tmp.write(uploaded_file.getbuffer())
+        tmp.write(csv_bytes)
         tmp_csv_path = tmp.name
     st.session_state.tracks, st.session_state.display_columns = build_tracks(tmp_csv_path)
-    st.session_state.uploaded_file_id = uploaded_file.file_id
-    st.session_state.uploaded_file_name = uploaded_file.name
+    st.session_state.uploaded_file_id = source_id
+    st.session_state.uploaded_file_name = csv_name
+    st.session_state.csv_bytes = bytes(csv_bytes)
+
+
+def handle_playlist_selected(playlist: dict):
+    """Export the chosen Spotify playlist to a CSV and load it exactly like an upload."""
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp_csv_path = tmp.name
+    export_playlist_to_csv(st.session_state.spotify_client, playlist["id"], tmp_csv_path)
+    with open(tmp_csv_path, "rb") as f:
+        csv_bytes = f.read()
+    csv_name = sanitize_filename(playlist["name"]) + ".csv"
+    activate_csv_source(csv_bytes, csv_name, f"spotify:{playlist['id']}")
+
+
+def render_spotify_sidebar():
+    """Left pane: log into Spotify, then pick a playlist from a list, mirroring
+    Exportify's own login-then-pick flow instead of asking for a pasted URL."""
+    st.sidebar.subheader("Spotify")
+
+    code = st.query_params.get("code")
+    if code and "spotify_client" not in st.session_state:
+        try:
+            st.session_state.spotify_client = complete_login(code)
+        except (spotipy.SpotifyOauthError, RuntimeError) as exc:
+            st.sidebar.error(f"Spotify login failed: {exc}")
+            st.query_params.clear()
+        else:
+            st.query_params.clear()
+            st.rerun()
+
+    if "spotify_client" not in st.session_state:
+        cached_client = get_cached_spotify_client(SPOTIFY_CLIENT_ID)
+        if cached_client:
+            st.session_state.spotify_client = cached_client
+
+    if "spotify_client" not in st.session_state:
+        st.sidebar.caption(
+            "Rather than uploading an Exportify CSV, you can log into your Spotify "
+            "account and your playlists will be displayed here. Note that due to "
+            "Spotify API changes in Nov 2024, Tempo and Genres are no longer "
+            "available for new apps such as this one."
+        )
+        login_url = build_login_url(SPOTIFY_CLIENT_ID)
+        st.sidebar.markdown(
+            SPOTIFY_SIDEBAR_STYLE + f'<a class="spotify-login-link" href="{html.escape(login_url)}" '
+            'target="_self">Login to Spotify</a>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    if st.sidebar.button("Log out", key="spotify_logout"):
+        logout()
+        for key in ("spotify_client", "spotify_playlists"):
+            st.session_state.pop(key, None)
+        st.rerun()
+
+    if "spotify_playlists" not in st.session_state:
+        st.session_state.spotify_playlists = list_user_playlists(st.session_state.spotify_client)
+
+    st.sidebar.markdown(SPOTIFY_SIDEBAR_STYLE, unsafe_allow_html=True)
+    for playlist in st.session_state.spotify_playlists:
+        image_col, name_col, select_col = st.sidebar.columns([1, 4, 1])
+        with image_col:
+            if playlist["image_url"]:
+                st.image(playlist["image_url"], width=36)
+            else:
+                st.markdown('<div class="playlist-row-placeholder"></div>', unsafe_allow_html=True)
+        with name_col:
+            st.markdown(
+                f'<div class="playlist-row-name">{html.escape(playlist["name"])}</div>',
+                unsafe_allow_html=True,
+            )
+        with select_col:
+            if st.button("➜", key=f"select_playlist_{playlist['id']}"):
+                try:
+                    handle_playlist_selected(playlist)
+                except spotipy.SpotifyException as exc:
+                    st.sidebar.error(f"Couldn't load '{playlist['name']}': {exc}")
+                else:
+                    st.rerun()
+
+
+render_spotify_sidebar()
+
+uploader_col, destination_col = st.columns(2)
+with uploader_col:
+    uploaded_file = st.file_uploader(
+        "CSV file",
+        type="csv",
+        help="An Exportify export, or a CSV that already has a 'Youtube ID' column.",
+    )
+with destination_col:
+    destination_root = st.text_input(
+        "Save music to",
+        value=str(Path.home() / "Music" / "MusicDownloads"),
+        help="Each playlist gets its own folder (named after the CSV) inside here.",
+    )
+
+if uploaded_file is not None and st.session_state.get("uploaded_file_id") != uploaded_file.file_id:
+    activate_csv_source(bytes(uploaded_file.getbuffer()), uploaded_file.name, uploaded_file.file_id)
 
 if "tracks" in st.session_state and destination_root:
     sync_states_from_disk(get_download_dir(destination_root, st.session_state.uploaded_file_name))
@@ -396,7 +511,9 @@ with steps_col:
                 render_unmatched_tracks_panel()
     run_matching_clicked, run_downloading_clicked, run_converting_clicked = step_clicked
 
-    start = st.button("Start", type="primary", disabled=not uploaded_file, width="stretch")
+    start = st.button(
+        "Start", type="primary", disabled="uploaded_file_name" not in st.session_state, width="stretch"
+    )
 
 
 def render_steps(statuses):
@@ -561,7 +678,7 @@ if start or run_matching_clicked or run_downloading_clicked or run_converting_cl
     st.info(f"Working in: `{download_dir}`")
 
     with open(os.path.join(download_dir, st.session_state.uploaded_file_name), "wb") as f:
-        f.write(uploaded_file.getbuffer())
+        f.write(st.session_state.csv_bytes)
 
     data_columns = [c for c in st.session_state.display_columns if c != "State"]
 
