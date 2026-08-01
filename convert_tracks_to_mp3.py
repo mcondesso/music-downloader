@@ -36,9 +36,14 @@ def convert_to_mp3(input_path, output_path, bitrate="128k"):
         bitrate,
         output_path,
     ]
-    subprocess.run(
-        cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True
-    )
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error converting {input_path}:")
+        print(f"  {e.stderr}")
+        return False
+
     ext = os.path.splitext(input_path)[1].lower()
     try:
         if ext == FILE_EXTENSION_MP4:
@@ -55,7 +60,7 @@ def convert_to_mp3(input_path, output_path, bitrate="128k"):
         print(
             f"Warning: Could not copy metadata from {input_path} to {output_path}: {e}"
         )
-
+    return True
 
 def main():
     """
@@ -94,8 +99,8 @@ def main():
         mp3_path = os.path.splitext(filepath)[0] + ".mp3"
         if os.path.exists(mp3_path):
             continue  # Skip if MP3 already exists
-        convert_to_mp3(filepath, mp3_path, bitrate)
-        if delete_originals:
+        conversion_success = convert_to_mp3(filepath, mp3_path, bitrate)
+        if delete_originals and conversion_success:
             try:
                 os.remove(filepath)
             except Exception as e:
