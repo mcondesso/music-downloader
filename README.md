@@ -1,5 +1,17 @@
 # Music downloader
 
+## Web UI
+
+Run the whole workflow from a browser:
+
+```
+poetry run streamlit run app.py
+```
+
+Then point it at an Exportify CSV (or a CSV that already has a "Youtube ID" column)
+and click Start. Matching, downloading and MP3 conversion run one after another,
+with progress bars and logs for each stage.
+
 ## Main Workflow
 
 The main workflow is automated via the `run.sh` script:
