@@ -10,7 +10,11 @@ from src.data_handling import (
     get_song_filename,
     get_youtube_url,
 )
-from src.file_metadata import prepare_metadata_tags, set_file_metadata_tags
+from src.file_metadata import (
+    SUPPORTED_FORMATS,
+    prepare_metadata_tags,
+    set_file_metadata_tags,
+)
 from src.youtube_download import get_audio_from_youtube
 
 
@@ -52,6 +56,14 @@ def main():
     for row in tqdm(music_df):
         song_filename = get_song_filename(row)
         youtube_url = get_youtube_url(row)
+
+        # Skip the track if it was already downloaded in a previous run
+        if any(
+            os.path.exists(os.path.join(download_dir, song_filename + ext))
+            for ext in SUPPORTED_FORMATS
+        ):
+            print(f"Skipping '{song_filename}', already downloaded.")
+            continue
 
         # Download audio track
         try:
