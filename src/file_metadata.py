@@ -3,6 +3,7 @@
 import os
 
 from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3NoHeaderError
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4
 
@@ -121,7 +122,15 @@ def set_file_metadata_tags(filepath: str, metadata_tags: dict):
     """This function sets the provided metadata tags onto a file."""
     file_extension = os.path.splitext(filepath)[1]
     tag_handling_class = METADATA_CLASSES[file_extension]
-    tag_dict = tag_handling_class(filepath)
+    try:
+        tag_dict = tag_handling_class(filepath)
+    except ID3NoHeaderError:
+        # A raw mp3 stream (e.g. downloaded directly from SoundCloud, which never
+        # goes through ffmpeg the way a converted YouTube download does) has no
+        # ID3 header yet, so one has to be created before it can be populated.
+        tag_dict = tag_handling_class()
+        tag_dict.save(filepath)
+        tag_dict = tag_handling_class(filepath)
     for key, value in metadata_tags.items():
         tag_dict[key] = value
     tag_dict.save()

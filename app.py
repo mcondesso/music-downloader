@@ -23,6 +23,7 @@ from src.csv_handling import read_csv, write_csv
 from src.data_handling import (
     COLUMN_ARTIST_NAME,
     COLUMN_GENRES,
+    COLUMN_SOUNDCLOUD_URL,
     COLUMN_TEMPO,
     COLUMN_TRACK_DURATION,
     COLUMN_TRACK_NAME,
@@ -36,10 +37,17 @@ from src.data_handling import (
 )
 from src.file_handling import scan_directory_for_audio_files
 from src.file_metadata import (
+    FILE_EXTENSION_MP3,
     FILE_EXTENSION_MP4,
     SUPPORTED_FORMATS,
     prepare_metadata_tags,
     set_file_metadata_tags,
+)
+from src.soundcloud_download import get_audio_from_soundcloud
+from src.soundcloud_search import (
+    NoMatchingSoundcloudTrackFoundError,
+    find_best_matching_soundcloud_track,
+    search_soundcloud_tracks,
 )
 from src.spotify_export import (
     SPOTIFY_CLIENT_ID,
@@ -50,6 +58,7 @@ from src.spotify_export import (
     list_user_playlists,
     logout,
 )
+from src.tempo_estimation import estimate_tempo
 from src.youtube_download import get_audio_from_youtube
 from src.youtube_id_search import (
     NoMatchingYoutubeVideoFoundError,
@@ -96,11 +105,13 @@ TRACK_CARD_STYLE = (
     ".track-artist { font-size: 0.85rem; opacity: 0.65; margin-left: 4px; }"
     ".track-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }"
     ".state-badge { font-size: 0.72rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }"
-    ".yt-link, .yt-link-disabled { display: inline-block; font-size: 0.78rem; font-weight: 600; padding: 6px 14px; "
-    "border-radius: 6px; text-decoration: none; white-space: nowrap; border: none; }"
+    ".yt-link, .yt-link-disabled, .sc-link { display: inline-block; font-size: 0.78rem; font-weight: 600; "
+    "padding: 6px 14px; border-radius: 6px; text-decoration: none; white-space: nowrap; border: none; }"
     ".yt-link { background-color: #FF0000; color: white; box-shadow: 0 1px 2px rgba(0,0,0,0.25); cursor: pointer; }"
     ".yt-link:hover { background-color: #cc0000; }"
     ".yt-link-disabled { background-color: rgba(128,128,128,0.18); color: rgba(128,128,128,0.6); cursor: not-allowed; }"
+    ".sc-link { background-color: #FF5500; color: white; box-shadow: 0 1px 2px rgba(0,0,0,0.25); cursor: pointer; }"
+    ".sc-link:hover { background-color: #cc4400; }"
     ".track-card-bottom { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 8px; gap: 12px; }"
     ".track-annotations { font-size: 0.72rem; opacity: 0.55; white-space: nowrap; }"
     ".track-genres { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 70%; }"
@@ -227,12 +238,14 @@ def _build_track_bottom_html(row: dict) -> str:
 
 
 def build_track_card_html(row: dict) -> str:
-    youtube_id = row.get(COLUMN_YOUTUBE_ID)
-    if youtube_id:
+    if soundcloud_url := row.get(COLUMN_SOUNDCLOUD_URL):
+        source_url = html.escape(soundcloud_url)
+        yt_element = f'<a class="sc-link" href="{source_url}" target="_blank">▶ SoundCloud</a>'
+    elif row.get(COLUMN_YOUTUBE_ID):
         yt_url = html.escape(get_youtube_url(row))
         yt_element = f'<a class="yt-link" href="{yt_url}" target="_blank">▶ YouTube</a>'
     else:
-        yt_element = '<span class="yt-link-disabled">▶ YouTube</span>'
+        yt_element = '<span class="yt-link-disabled">▶ Play</span>'
 
     track_name = html.escape(str(row.get(COLUMN_TRACK_NAME, "")))
     artist_name = html.escape(_format_artist_names(row.get(COLUMN_ARTIST_NAME, "")))
@@ -279,8 +292,15 @@ def build_tracks(csv_path: str):
         for row in rows:
             row.setdefault(COLUMN_YOUTUBE_ID, "")
 
+    if COLUMN_SOUNDCLOUD_URL not in display_columns:
+        display_columns = display_columns + [COLUMN_SOUNDCLOUD_URL]
     for row in rows:
-        row["State"] = STATE_MATCHED if row.get(COLUMN_YOUTUBE_ID) else STATE_PENDING
+        row.setdefault(COLUMN_SOUNDCLOUD_URL, "")
+
+    for row in rows:
+        row["State"] = (
+            STATE_MATCHED if row.get(COLUMN_YOUTUBE_ID) or row.get(COLUMN_SOUNDCLOUD_URL) else STATE_PENDING
+        )
 
     return rows, ["State"] + display_columns
 
@@ -573,6 +593,27 @@ def run_matching_stage():
         return
     for row in pending_rows:
         search_string = get_song_search_string(row)
+
+        soundcloud_url = None
+        try:
+            soundcloud_results = search_soundcloud_tracks(search_string)
+            soundcloud_url = find_best_matching_soundcloud_track(
+                db_entry=row, search_results=soundcloud_results
+            )
+        except NoMatchingSoundcloudTrackFoundError:
+            pass
+        except Exception as exc:
+            # SoundCloud is an unofficial API (scraped client_id, reverse-engineered
+            # endpoints) - any failure here just means falling back to YouTube below,
+            # not failing the match.
+            print(f"SoundCloud search failed for '{search_string}': {exc}")
+
+        if soundcloud_url:
+            row[COLUMN_SOUNDCLOUD_URL] = soundcloud_url
+            row["State"] = STATE_MATCHED
+            render_tracks()
+            continue
+
         try:
             results = get_youtube_search_results(search_string)
             video_id = find_best_matching_youtube_id(db_entry=row, search_results=results)
@@ -582,6 +623,32 @@ def run_matching_stage():
             row[COLUMN_YOUTUBE_ID] = video_id
             row["State"] = STATE_MATCHED
         render_tracks()
+
+
+def _download_track_audio(row: dict, download_dir: str, song_filename: str) -> str:
+    """Download a track's audio, preferring SoundCloud when matched but falling
+    back to YouTube if the SoundCloud download itself fails. Some tracks (e.g.
+    ad-monetized/label-affiliated ones) list a progressive stream in their
+    metadata that 404s in practice - SoundCloud only actually serves those via
+    encrypted HLS, which we don't attempt to decrypt - so this is a real,
+    expected fallback path, not just a rare edge case."""
+    soundcloud_url = row.get(COLUMN_SOUNDCLOUD_URL)
+    if soundcloud_url:
+        try:
+            return get_audio_from_soundcloud(
+                track_url=soundcloud_url, output_dir=download_dir, filename=song_filename
+            )
+        except Exception as exc:
+            print(f"SoundCloud download failed for '{song_filename}', falling back to YouTube: {exc}")
+            row[COLUMN_SOUNDCLOUD_URL] = ""
+
+    if not row.get(COLUMN_YOUTUBE_ID):
+        results = get_youtube_search_results(get_song_search_string(row))
+        row[COLUMN_YOUTUBE_ID] = find_best_matching_youtube_id(db_entry=row, search_results=results)
+
+    return get_audio_from_youtube(
+        youtube_url=get_youtube_url(row), output_dir=download_dir, filename=song_filename
+    )
 
 
 def run_download_stage(download_dir):
@@ -604,17 +671,28 @@ def run_download_stage(download_dir):
             render_tracks()
 
             song_filename = get_song_filename(row)
-            if any(
-                os.path.exists(os.path.join(download_dir, song_filename + ext))
-                for ext in SUPPORTED_FORMATS
-            ):
-                row["State"] = STATE_DOWNLOADED
+            existing_ext = next(
+                (
+                    ext
+                    for ext in SUPPORTED_FORMATS
+                    if os.path.exists(os.path.join(download_dir, song_filename + ext))
+                ),
+                None,
+            )
+            if existing_ext:
+                # A SoundCloud download already lands as mp3 (no conversion needed);
+                # a YouTube one lands as mp4 and still needs the conversion stage.
+                row["State"] = STATE_CONVERTED if existing_ext == FILE_EXTENSION_MP3 else STATE_DOWNLOADED
             else:
                 try:
-                    youtube_url = get_youtube_url(row)
-                    output_filepath = get_audio_from_youtube(
-                        youtube_url=youtube_url, output_dir=download_dir, filename=song_filename
-                    )
+                    output_filepath = _download_track_audio(row, download_dir, song_filename)
+                    if not row.get(COLUMN_TEMPO):
+                        try:
+                            row[COLUMN_TEMPO] = str(round(estimate_tempo(output_filepath)))
+                        except Exception:
+                            # Best-effort: leave Tempo blank rather than failing an
+                            # otherwise-successful download over a bad BPM estimate.
+                            pass
                     file_extension = os.path.splitext(output_filepath)[1]
                     metadata_tags = prepare_metadata_tags(
                         music_df_row=row,
@@ -625,10 +703,12 @@ def run_download_stage(download_dir):
                 except BotDetection:
                     row["State"] = STATE_FAILED_BEFORE_RETRY
                     still_pending.append(row)
-                except Exception:
+                except Exception as exc:
+                    source = "SoundCloud" if row.get(COLUMN_SOUNDCLOUD_URL) else "YouTube"
+                    print(f"Error downloading '{song_filename}' from {source}: {exc}")
                     row["State"] = STATE_FAILED
                 else:
-                    row["State"] = STATE_DOWNLOADED
+                    row["State"] = STATE_CONVERTED if file_extension == FILE_EXTENSION_MP3 else STATE_DOWNLOADED
 
             render_tracks()
 
@@ -695,17 +775,22 @@ if start or run_matching_clicked or run_downloading_clicked or run_converting_cl
         matched_rows = [row for row in st.session_state.tracks if row["State"] != STATE_PENDING]
         write_csv(
             file_path=os.path.join(download_dir, f"{playlist_name}_with_ids.csv"),
-            data=[{k: row[k] for k in data_columns} for row in matched_rows if row.get(COLUMN_YOUTUBE_ID)],
+            data=[
+                {k: row[k] for k in data_columns}
+                for row in matched_rows
+                if row.get(COLUMN_YOUTUBE_ID) or row.get(COLUMN_SOUNDCLOUD_URL)
+            ],
             fieldnames=data_columns,
         )
         unmatched_rows = [row for row in st.session_state.tracks if row["State"] == STATE_NO_MATCH]
         if unmatched_rows:
+            unmatched_columns = [c for c in data_columns if c not in (COLUMN_YOUTUBE_ID, COLUMN_SOUNDCLOUD_URL)]
             write_csv(
                 file_path=os.path.join(download_dir, f"{playlist_name}_without_ids.csv"),
-                data=[{k: row[k] for k in data_columns if k != COLUMN_YOUTUBE_ID} for row in unmatched_rows],
-                fieldnames=[c for c in data_columns if c != COLUMN_YOUTUBE_ID],
+                data=[{k: row[k] for k in unmatched_columns} for row in unmatched_rows],
+                fieldnames=unmatched_columns,
             )
-            st.warning(f"{len(unmatched_rows)} song(s) had no matching Youtube video.")
+            st.warning(f"{len(unmatched_rows)} song(s) had no matching track on SoundCloud or YouTube.")
 
     if start or run_downloading_clicked:
         statuses[1] = "active"
