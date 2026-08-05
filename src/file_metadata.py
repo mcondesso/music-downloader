@@ -41,6 +41,23 @@ METADATA_CLASSES = {
 }
 
 
+def get_file_bit_rate_kbps(filepath: str) -> str:
+    """Read a file's actual audio bitrate in kbps straight from its stream info.
+    Safe to call on a freshly downloaded file before any tags have been written -
+    unlike extract_metadata_from_file, this only touches stream info, never tags."""
+    ext = os.path.splitext(filepath)[1].lower()
+    try:
+        if ext == FILE_EXTENSION_MP3:
+            info = MP3(filepath).info
+        elif ext == FILE_EXTENSION_MP4:
+            info = MP4(filepath).info
+        else:
+            return ""
+        return str(int(info.bitrate // 1000)) if hasattr(info, "bitrate") else ""
+    except Exception:
+        return ""
+
+
 def extract_metadata_from_file(filepath: str) -> dict:
     """Extract metadata from an audio file (artist, title, duration, genres, tempo)."""
     ext = os.path.splitext(filepath)[1].lower()
@@ -72,8 +89,8 @@ def extract_metadata_from_file(filepath: str) -> dict:
             metadata["genres"] = audio.tags.get("©gen", [""])[0]
             metadata["tempo"] = str(audio.tags.get("tmpo", [""])[0])
             metadata["duration"] = int(audio.info.length)
-            # Bit rate not available for mp4
-            metadata["bit_rate"] = ""
+            if hasattr(audio.info, "bitrate"):
+                metadata["bit_rate"] = str(int(audio.info.bitrate // 1000))
     except Exception as e:
         pass  # Could log error if needed
     return metadata

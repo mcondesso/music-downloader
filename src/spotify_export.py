@@ -5,22 +5,28 @@ import os
 import re
 from typing import Dict, List, Optional
 
+import requests
 import spotipy
+from dotenv import load_dotenv
 from spotipy.oauth2 import SpotifyPKCE
 
 from src.csv_handling import write_csv
 
+load_dotenv()
+
 # Public by design: PKCE client IDs aren't secrets (there's no client secret to leak),
 # so - same as Exportify's own hardcoded ID - everyone running this app shares this ID
-# and each logs in with their own Spotify account against it.
-SPOTIFY_CLIENT_ID = "650d6ba75e0343498dd4afe05a90317e"
+# and each logs in with their own Spotify account against it. Configured via .env
+# (see .env.example) rather than hardcoded, so it's not tied to one person's app
+# registration and doesn't need editing source to change.
+SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "")
 
-SPOTIFY_REDIRECT_URI_CLI = "http://127.0.0.1:8080/callback"
 # Must also be registered as a Redirect URI on the Spotify app, and match the
 # address Streamlit actually serves the app on (its default local port). Spotify
 # requires the loopback IP literal here rather than "localhost" - the hostname
 # isn't accepted as a secure redirect target.
-SPOTIFY_REDIRECT_URI_APP = "http://127.0.0.1:8501"
+SPOTIFY_REDIRECT_URI_CLI = os.getenv("SPOTIFY_REDIRECT_URI_CLI", "http://127.0.0.1:8080/callback")
+SPOTIFY_REDIRECT_URI_APP = os.getenv("SPOTIFY_REDIRECT_URI_APP", "http://127.0.0.1:8501")
 SPOTIFY_SCOPE = "playlist-read-private playlist-read-collaborative"
 SPOTIFY_CACHE_PATH = ".spotify_cache"
 
@@ -79,10 +85,12 @@ def _build_app_auth_manager(client_id: str) -> SpotifyPKCE:
 
 def build_login_url(client_id: str) -> str:
     """Start a login from the Streamlit app: create the PKCE auth manager and
-    return the URL to send the user's browser to."""
+    return the URL to send the user's browser to. `state` marks this as a
+    Spotify callback, since YouTube Music's redirect-based login lands on the
+    same app URL with its own `code` param."""
     global _pending_auth_manager
     _pending_auth_manager = _build_app_auth_manager(client_id)
-    return _pending_auth_manager.get_authorize_url()
+    return _pending_auth_manager.get_authorize_url(state="spotify")
 
 
 def complete_login(code: str) -> spotipy.Spotify:
@@ -105,9 +113,17 @@ def logout() -> None:
 
 def get_cached_spotify_client(client_id: str) -> Optional[spotipy.Spotify]:
     """Reuse a previously cached token, if one is on disk and still valid, so
-    restarting the app doesn't force the user to log in again."""
+    restarting the app doesn't force the user to log in again.
+
+    Runs on every page load, unconditionally, so a network hiccup here (no
+    connection, DNS failure, Spotify down) must not crash the whole app - it
+    should just mean the cached session couldn't be restored, same as if there
+    were no cached token at all."""
     auth_manager = _build_app_auth_manager(client_id)
-    token_info = auth_manager.validate_token(auth_manager.cache_handler.get_cached_token())
+    try:
+        token_info = auth_manager.validate_token(auth_manager.cache_handler.get_cached_token())
+    except (requests.RequestException, spotipy.SpotifyBaseException):
+        return None
     return spotipy.Spotify(auth_manager=auth_manager) if token_info else None
 
 
@@ -156,67 +172,32 @@ def _fetch_all_tracks(sp: spotipy.Spotify, playlist_id: str) -> List[dict]:
     return tracks
 
 
-def _fetch_artist_genres(sp: spotipy.Spotify, artist_ids: List[str]) -> Dict[str, List[str]]:
-    """Batch-fetch genres per artist (the artists endpoint takes up to 50 IDs per call).
-    Some apps get a 403 here depending on Spotify's current access tier, so - like
-    tempo below - a failure just means every artist falls back to no genres instead
-    of failing the whole export."""
-    genres_by_id: Dict[str, List[str]] = {}
-    unique_ids = list(dict.fromkeys(artist_ids))
-    try:
-        for i in range(0, len(unique_ids), 50):
-            batch = unique_ids[i : i + 50]
-            for artist in sp.artists(batch)["artists"]:
-                genres_by_id[artist["id"]] = artist.get("genres", [])
-    except spotipy.SpotifyException:
-        pass
-    return genres_by_id
-
-
-def _fetch_tempos(sp: spotipy.Spotify, track_ids: List[str]) -> Dict[str, int]:
-    """Batch-fetch tempo per track. Spotify's audio-features endpoint is gated behind
-    extended API access for apps created after Nov 2024, so a 403 here just means
-    every track falls back to an empty Tempo column instead of failing the export."""
-    tempo_by_id: Dict[str, int] = {}
-    try:
-        for i in range(0, len(track_ids), 100):
-            batch = track_ids[i : i + 100]
-            for features in sp.audio_features(batch):
-                if features:
-                    tempo_by_id[features["id"]] = round(features["tempo"])
-    except spotipy.SpotifyException:
-        pass
-    return tempo_by_id
-
-
 def export_playlist_to_csv(sp: spotipy.Spotify, playlist_url_or_id: str, output_path: str) -> str:
     """Fetch a Spotify playlist's tracks and write them to a CSV shaped like an Exportify
     export, so it can be fed straight into `get_data_list_from_exportify_csv`.
 
     Takes an already-authenticated client so the UI can log in once, list playlists,
-    then export a chosen one without re-running the OAuth flow."""
+    then export a chosen one without re-running the OAuth flow.
+
+    Genres and Tempo are left blank here rather than fetched from Spotify: both the
+    artists endpoint (genres) and audio-features endpoint (tempo) return a 403 for
+    this app's access tier on every request, with no exceptions found so far - so
+    calling them is pure wasted latency/quota, not a best-effort attempt. Tempo gets
+    filled in later from the actual downloaded audio instead (see tempo_estimation.py).
+    """
     playlist_id = extract_playlist_id(playlist_url_or_id)
-
     tracks = _fetch_all_tracks(sp, playlist_id)
-    artist_ids = [artist["id"] for track in tracks for artist in track["artists"]]
-    genres_by_artist = _fetch_artist_genres(sp, artist_ids)
-    tempo_by_track = _fetch_tempos(sp, [track["id"] for track in tracks])
 
-    rows = []
-    for track in tracks:
-        artist_names = ", ".join(artist["name"] for artist in track["artists"])
-        genres = sorted(
-            {genre for artist in track["artists"] for genre in genres_by_artist.get(artist["id"], [])}
-        )
-        rows.append(
-            {
-                COLUMN_ARTIST_NAME: artist_names,
-                COLUMN_TRACK_NAME: track["name"],
-                COLUMN_TRACK_DURATION_MS: track["duration_ms"],
-                COLUMN_GENRES: ", ".join(genres),
-                COLUMN_TEMPO: tempo_by_track.get(track["id"], ""),
-            }
-        )
+    rows = [
+        {
+            COLUMN_ARTIST_NAME: ", ".join(artist["name"] for artist in track["artists"]),
+            COLUMN_TRACK_NAME: track["name"],
+            COLUMN_TRACK_DURATION_MS: track["duration_ms"],
+            COLUMN_GENRES: "",
+            COLUMN_TEMPO: "",
+        }
+        for track in tracks
+    ]
 
     write_csv(output_path, rows, EXPORT_COLUMNS)
     return output_path
