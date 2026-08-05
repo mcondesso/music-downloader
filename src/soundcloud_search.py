@@ -75,8 +75,28 @@ def _is_client_id_valid(client_id: str) -> bool:
         return False
 
 
-def search_soundcloud_tracks(query: str, limit: int = 5) -> List[dict]:
-    """Search SoundCloud for tracks matching a query."""
+def _has_usable_progressive_stream(track: dict) -> bool:
+    """Whether a track's progressive (plain HTTP mp3) stream is actually reachable.
+
+    Some tracks list a progressive transcoding in their metadata that 404s in
+    practice - verified empirically: when an encrypted-hls variant is also listed
+    alongside it, the plain progressive/hls entries turn out to be non-functional,
+    and only the encrypted streams (real DRM, not something we decrypt) actually
+    work. The `policy`/`monetization_model` fields don't reliably predict this -
+    they're identical between tracks that do and don't actually work - so presence
+    of an encrypted transcoding is the only signal that's held up under testing.
+    """
+    transcodings = track.get("media", {}).get("transcodings", [])
+    has_progressive = any(t.get("format", {}).get("protocol") == "progressive" for t in transcodings)
+    has_encrypted = any("encrypted" in t.get("format", {}).get("protocol", "") for t in transcodings)
+    return has_progressive and not has_encrypted
+
+
+def search_soundcloud_tracks(query: str, limit: int = 10) -> List[dict]:
+    """Search SoundCloud for tracks matching a query. Only returns tracks with a
+    usable progressive stream, so a track known to be undownloadable never gets
+    picked as a match - meaning the YouTube fallback kicks in immediately at
+    matching time instead of only after a wasted download attempt."""
     client_id = get_client_id()
     response = requests.get(
         SEARCH_URL,
@@ -89,6 +109,8 @@ def search_soundcloud_tracks(query: str, limit: int = 5) -> List[dict]:
     results = []
     for track in response.json().get("collection", []):
         if track.get("kind") != "track" or not track.get("permalink_url"):
+            continue
+        if not _has_usable_progressive_stream(track):
             continue
         results.append(
             {

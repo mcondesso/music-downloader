@@ -14,6 +14,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import requests
 import spotipy
 import streamlit as st
 from pytubefix.exceptions import BotDetection
@@ -22,6 +23,7 @@ from convert_tracks_to_mp3 import convert_to_mp3
 from src.csv_handling import read_csv, write_csv
 from src.data_handling import (
     COLUMN_ARTIST_NAME,
+    COLUMN_BIT_RATE,
     COLUMN_GENRES,
     COLUMN_SOUNDCLOUD_URL,
     COLUMN_TEMPO,
@@ -40,6 +42,7 @@ from src.file_metadata import (
     FILE_EXTENSION_MP3,
     FILE_EXTENSION_MP4,
     SUPPORTED_FORMATS,
+    get_file_bit_rate_kbps,
     prepare_metadata_tags,
     set_file_metadata_tags,
 )
@@ -49,22 +52,41 @@ from src.soundcloud_search import (
     find_best_matching_soundcloud_track,
     search_soundcloud_tracks,
 )
-from src.spotify_export import (
-    SPOTIFY_CLIENT_ID,
-    build_login_url,
-    complete_login,
-    export_playlist_to_csv,
-    get_cached_spotify_client,
-    list_user_playlists,
-    logout,
-)
+from src.spotify_export import SPOTIFY_CLIENT_ID
+from src.spotify_export import build_login_url as build_spotify_login_url
+from src.spotify_export import complete_login as complete_spotify_login
+from src.spotify_export import export_playlist_to_csv as export_spotify_playlist_to_csv
+from src.spotify_export import get_cached_spotify_client
+from src.spotify_export import list_user_playlists as list_spotify_playlists
+from src.spotify_export import logout as spotify_logout
 from src.tempo_estimation import estimate_tempo
 from src.youtube_download import get_audio_from_youtube
-from src.youtube_id_search import (
-    NoMatchingYoutubeVideoFoundError,
-    find_best_matching_youtube_id,
-    get_youtube_search_results,
+from src.youtube_music_export import YouTubeMusicLoginError, YouTubeMusicNotConfiguredError
+from src.youtube_music_export import build_login_url as build_ytmusic_login_url
+from src.youtube_music_export import complete_login as complete_ytmusic_login
+from src.youtube_music_export import export_playlist_to_csv as export_ytmusic_playlist_to_csv
+from src.youtube_music_export import get_cached_ytmusic_client
+from src.youtube_music_export import list_user_playlists as list_ytmusic_playlists
+from src.youtube_music_export import logout as ytmusic_logout
+from src.youtube_music_search import (
+    NoMatchingYoutubeMusicVideoFoundError,
+    find_best_matching_youtube_music_video,
+    get_youtube_music_search_results,
 )
+from ytmusicapi.auth.oauth.exceptions import BadOAuthClient, UnauthorizedOAuthClient
+from ytmusicapi.exceptions import YTMusicError
+
+# Covers HTTP errors from Spotify (SpotifyException), OAuth-specific failures
+# (SpotifyOauthError - both share the SpotifyBaseException base), and raw
+# network-level failures (timeouts, DNS/connection errors) that spotipy doesn't
+# wrap itself. Used everywhere a Spotify API call could plausibly fail, so a
+# network hiccup shows a clean message instead of crashing the whole app.
+SPOTIFY_ERRORS = (requests.RequestException, spotipy.SpotifyBaseException)
+
+# Same idea as SPOTIFY_ERRORS, for YouTube Music: network failures plus every
+# ytmusicapi-raised error (YTMusicError covers server/user errors; the OAuth
+# client errors are a separate hierarchy, so listed explicitly).
+YOUTUBE_MUSIC_ERRORS = (requests.RequestException, YTMusicError, BadOAuthClient, UnauthorizedOAuthClient)
 
 STATE_PENDING = "Pending"
 STATE_MATCHED = "Matched"
@@ -128,6 +150,10 @@ SPOTIFY_SIDEBAR_STYLE = (
     "background-color: #1DB954; color: white; font-weight: 600; font-size: 0.85rem; "
     "padding: 8px 0; border-radius: 999px; text-decoration: none; margin-bottom: 12px; }"
     ".spotify-login-link:hover { background-color: #1ed760; }"
+    ".ytmusic-login-link { display: inline-block; width: 100%; text-align: center; "
+    "background-color: #FF0000; color: white; font-weight: 600; font-size: 0.85rem; "
+    "padding: 8px 0; border-radius: 999px; text-decoration: none; margin-bottom: 12px; }"
+    ".ytmusic-login-link:hover { background-color: #cc0000; }"
     ".playlist-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; "
     "border-bottom: 1px solid rgba(128,128,128,0.15); }"
     ".playlist-row img { width: 36px; height: 36px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }"
@@ -224,6 +250,9 @@ def _build_track_bottom_html(row: dict) -> str:
     tempo = row.get(COLUMN_TEMPO)
     if tempo:
         annotation_parts.append(f"{tempo} BPM")
+    bit_rate = row.get(COLUMN_BIT_RATE)
+    if bit_rate:
+        annotation_parts.append(f"{bit_rate} kbps")
     annotations = html.escape(" · ".join(annotation_parts))
 
     genre_list = [g.strip() for g in str(row.get(COLUMN_GENRES, "")).split(",") if g.strip()]
@@ -276,7 +305,7 @@ def extract_youtube_id(text: str):
 
 st.set_page_config(page_title="Music Downloader", page_icon="🎵", layout="wide")
 st.title("Music Downloader")
-st.caption("Turn a Spotify playlist (or an Exportify CSV export) into a folder of tagged MP3s.")
+st.caption("Turn a Spotify or YouTube Music playlist into a folder of tagged MP3s.")
 
 
 def build_tracks(csv_path: str):
@@ -296,6 +325,11 @@ def build_tracks(csv_path: str):
         display_columns = display_columns + [COLUMN_SOUNDCLOUD_URL]
     for row in rows:
         row.setdefault(COLUMN_SOUNDCLOUD_URL, "")
+
+    if COLUMN_BIT_RATE not in display_columns:
+        display_columns = display_columns + [COLUMN_BIT_RATE]
+    for row in rows:
+        row.setdefault(COLUMN_BIT_RATE, "")
 
     for row in rows:
         row["State"] = (
@@ -338,32 +372,58 @@ def activate_csv_source(csv_bytes: bytes, csv_name: str, source_id: str):
     st.session_state.csv_bytes = bytes(csv_bytes)
 
 
-def handle_playlist_selected(playlist: dict):
+def handle_spotify_playlist_selected(playlist: dict):
     """Export the chosen Spotify playlist to a CSV and load it exactly like an upload."""
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp_csv_path = tmp.name
-    export_playlist_to_csv(st.session_state.spotify_client, playlist["id"], tmp_csv_path)
+    export_spotify_playlist_to_csv(st.session_state.spotify_client, playlist["id"], tmp_csv_path)
     with open(tmp_csv_path, "rb") as f:
         csv_bytes = f.read()
     csv_name = sanitize_filename(playlist["name"]) + ".csv"
     activate_csv_source(csv_bytes, csv_name, f"spotify:{playlist['id']}")
 
 
+def handle_ytmusic_playlist_selected(playlist: dict):
+    """Export the chosen YouTube Music playlist to a CSV and load it exactly like an upload."""
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp_csv_path = tmp.name
+    export_ytmusic_playlist_to_csv(st.session_state.ytmusic_client, playlist["id"], tmp_csv_path)
+    with open(tmp_csv_path, "rb") as f:
+        csv_bytes = f.read()
+    csv_name = sanitize_filename(playlist["name"]) + ".csv"
+    activate_csv_source(csv_bytes, csv_name, f"ytmusic:{playlist['id']}")
+
+
+def handle_oauth_callback():
+    """Both Spotify and YouTube Music use a redirect-based OAuth flow that lands
+    back on this same app URL with a `code` param - `state` (set when building
+    each login URL) says which one just completed. Runs once, before either
+    sidebar panel renders, regardless of which one is currently selected."""
+    code = st.query_params.get("code")
+    state = st.query_params.get("state")
+    if not code:
+        return
+
+    if state == "spotify" and "spotify_client" not in st.session_state:
+        try:
+            st.session_state.spotify_client = complete_spotify_login(code)
+        except SPOTIFY_ERRORS + (RuntimeError,) as exc:
+            st.sidebar.error(f"Spotify login failed: {exc}")
+        st.query_params.clear()
+        st.rerun()
+    elif state == "ytmusic" and "ytmusic_client" not in st.session_state:
+        try:
+            st.session_state.ytmusic_client = complete_ytmusic_login(code)
+        except YOUTUBE_MUSIC_ERRORS + (YouTubeMusicLoginError,) as exc:
+            st.sidebar.error(f"YouTube Music login failed: {exc}")
+        st.query_params.clear()
+        st.rerun()
+
+
 def render_spotify_sidebar():
     """Left pane: log into Spotify, then pick a playlist from a list, mirroring
     Exportify's own login-then-pick flow instead of asking for a pasted URL."""
     st.sidebar.subheader("Spotify")
-
-    code = st.query_params.get("code")
-    if code and "spotify_client" not in st.session_state:
-        try:
-            st.session_state.spotify_client = complete_login(code)
-        except (spotipy.SpotifyOauthError, RuntimeError) as exc:
-            st.sidebar.error(f"Spotify login failed: {exc}")
-            st.query_params.clear()
-        else:
-            st.query_params.clear()
-            st.rerun()
 
     if "spotify_client" not in st.session_state:
         cached_client = get_cached_spotify_client(SPOTIFY_CLIENT_ID)
@@ -377,7 +437,7 @@ def render_spotify_sidebar():
             "Spotify API changes in Nov 2024, Tempo and Genres are no longer "
             "available for new apps such as this one."
         )
-        login_url = build_login_url(SPOTIFY_CLIENT_ID)
+        login_url = build_spotify_login_url(SPOTIFY_CLIENT_ID)
         st.sidebar.markdown(
             SPOTIFY_SIDEBAR_STYLE + f'<a class="spotify-login-link" href="{html.escape(login_url)}" '
             'target="_self">Login to Spotify</a>',
@@ -386,16 +446,21 @@ def render_spotify_sidebar():
         return
 
     if st.sidebar.button("Log out", key="spotify_logout"):
-        logout()
+        spotify_logout()
         for key in ("spotify_client", "spotify_playlists"):
             st.session_state.pop(key, None)
         st.rerun()
 
     if "spotify_playlists" not in st.session_state:
-        st.session_state.spotify_playlists = list_user_playlists(st.session_state.spotify_client)
+        try:
+            st.session_state.spotify_playlists = list_spotify_playlists(st.session_state.spotify_client)
+        except SPOTIFY_ERRORS as exc:
+            # Don't cache a failure - leaving the key unset means this retries on
+            # the next rerun instead of getting stuck on a stale empty list.
+            st.sidebar.error(f"Couldn't load playlists: {exc}")
 
     st.sidebar.markdown(SPOTIFY_SIDEBAR_STYLE, unsafe_allow_html=True)
-    for playlist in st.session_state.spotify_playlists:
+    for playlist in st.session_state.get("spotify_playlists", []):
         image_col, name_col, select_col = st.sidebar.columns([1, 4, 1])
         with image_col:
             if playlist["image_url"]:
@@ -410,19 +475,94 @@ def render_spotify_sidebar():
         with select_col:
             if st.button("➜", key=f"select_playlist_{playlist['id']}"):
                 try:
-                    handle_playlist_selected(playlist)
-                except spotipy.SpotifyException as exc:
+                    handle_spotify_playlist_selected(playlist)
+                except SPOTIFY_ERRORS as exc:
                     st.sidebar.error(f"Couldn't load '{playlist['name']}': {exc}")
                 else:
                     st.rerun()
 
 
-render_spotify_sidebar()
+def render_youtube_music_sidebar():
+    """Left pane: log into YouTube Music, then pick a playlist from a list -
+    same shape and redirect-based login mechanics as render_spotify_sidebar."""
+    st.sidebar.subheader("YouTube Music")
+
+    if "ytmusic_client" not in st.session_state:
+        cached_client = get_cached_ytmusic_client()
+        if cached_client:
+            st.session_state.ytmusic_client = cached_client
+
+    if "ytmusic_client" not in st.session_state:
+        st.sidebar.caption(
+            "Rather than uploading a CSV, you can log into YouTube Music and your "
+            "playlists will be displayed here."
+        )
+        try:
+            login_url = build_ytmusic_login_url()
+        except YouTubeMusicNotConfiguredError as exc:
+            st.sidebar.error(str(exc))
+        else:
+            st.sidebar.markdown(
+                SPOTIFY_SIDEBAR_STYLE + f'<a class="ytmusic-login-link" href="{html.escape(login_url)}" '
+                'target="_self">Login to YouTube Music</a>',
+                unsafe_allow_html=True,
+            )
+        return
+
+    if st.sidebar.button("Log out", key="ytmusic_logout"):
+        ytmusic_logout()
+        for key in ("ytmusic_client", "ytmusic_playlists"):
+            st.session_state.pop(key, None)
+        st.rerun()
+
+    if "ytmusic_playlists" not in st.session_state:
+        try:
+            st.session_state.ytmusic_playlists = list_ytmusic_playlists(st.session_state.ytmusic_client)
+        except YOUTUBE_MUSIC_ERRORS as exc:
+            st.sidebar.error(f"Couldn't load playlists: {exc}")
+
+    st.sidebar.markdown(SPOTIFY_SIDEBAR_STYLE, unsafe_allow_html=True)
+    for playlist in st.session_state.get("ytmusic_playlists", []):
+        image_col, name_col, select_col = st.sidebar.columns([1, 4, 1])
+        with image_col:
+            if playlist["image_url"]:
+                st.image(playlist["image_url"], width=36)
+            else:
+                st.markdown('<div class="playlist-row-placeholder"></div>', unsafe_allow_html=True)
+        with name_col:
+            st.markdown(
+                f'<div class="playlist-row-name">{html.escape(playlist["name"])}</div>',
+                unsafe_allow_html=True,
+            )
+        with select_col:
+            if st.button("➜", key=f"select_ytmusic_playlist_{playlist['id']}"):
+                try:
+                    handle_ytmusic_playlist_selected(playlist)
+                except YOUTUBE_MUSIC_ERRORS as exc:
+                    st.sidebar.error(f"Couldn't load '{playlist['name']}': {exc}")
+                else:
+                    st.rerun()
+
+
+def render_playlist_sidebar():
+    """Left pane entry point: let the user pick which service supplies playlist
+    data, then render that service's login/playlist-picker flow."""
+    handle_oauth_callback()
+    source = st.sidebar.radio(
+        "Playlist source", ["Spotify", "YouTube Music"], key="playlist_source"
+    )
+    if source == "Spotify":
+        render_spotify_sidebar()
+    else:
+        render_youtube_music_sidebar()
+
+
+render_playlist_sidebar()
 
 uploader_col, destination_col = st.columns(2)
 with uploader_col:
     uploaded_file = st.file_uploader(
-        "CSV file",
+        "Alternatively upload an Exportify CSV file",
         type="csv",
         help="An Exportify export, or a CSV that already has a 'Youtube ID' column.",
     )
@@ -487,19 +627,16 @@ def render_unmatched_tracks_panel():
 
 options_col, steps_col = st.columns([1, 3])
 with options_col:
-    bitrate_label_col, bitrate_select_col = st.columns([1, 4], vertical_alignment="center")
-    with bitrate_label_col:
-        st.markdown(
-            '<p style="font-size: 0.875rem; font-weight: 400; margin: -16px 0 0 0; white-space: nowrap;">'
-            "MP3 bitrate</p>",
-            unsafe_allow_html=True,
-        )
+    bitrate_checkbox_col, bitrate_select_col = st.columns([2, 3], vertical_alignment="center")
+    with bitrate_checkbox_col:
+        use_max_bitrate = st.checkbox("Max available bitrate", value=True)
     with bitrate_select_col:
         bitrate = st.selectbox(
             "MP3 bitrate",
             ["128k", "192k", "256k", "320k"],
             index=0,
             label_visibility="collapsed",
+            disabled=use_max_bitrate,
         )
     artist_col, delete_col = st.columns(2)
     with artist_col:
@@ -615,9 +752,9 @@ def run_matching_stage():
             continue
 
         try:
-            results = get_youtube_search_results(search_string)
-            video_id = find_best_matching_youtube_id(db_entry=row, search_results=results)
-        except NoMatchingYoutubeVideoFoundError:
+            results = get_youtube_music_search_results(search_string)
+            video_id = find_best_matching_youtube_music_video(db_entry=row, search_results=results)
+        except NoMatchingYoutubeMusicVideoFoundError:
             row["State"] = STATE_NO_MATCH
         else:
             row[COLUMN_YOUTUBE_ID] = video_id
@@ -643,12 +780,41 @@ def _download_track_audio(row: dict, download_dir: str, song_filename: str) -> s
             row[COLUMN_SOUNDCLOUD_URL] = ""
 
     if not row.get(COLUMN_YOUTUBE_ID):
-        results = get_youtube_search_results(get_song_search_string(row))
-        row[COLUMN_YOUTUBE_ID] = find_best_matching_youtube_id(db_entry=row, search_results=results)
+        results = get_youtube_music_search_results(get_song_search_string(row))
+        row[COLUMN_YOUTUBE_ID] = find_best_matching_youtube_music_video(db_entry=row, search_results=results)
 
     return get_audio_from_youtube(
         youtube_url=get_youtube_url(row), output_dir=download_dir, filename=song_filename
     )
+
+
+def _get_target_bitrate_kbps(row: dict) -> str:
+    """What ffmpeg should target when (re-)encoding this row's mp3: the source's
+    own native bitrate (capped at mp3's 320kbps ceiling) when "max available
+    bitrate" is checked, or the user's explicitly selected bitrate otherwise."""
+    if use_max_bitrate:
+        native_kbps = row.get(COLUMN_BIT_RATE)
+        if native_kbps:
+            return f"{min(int(native_kbps), 320)}k"
+    return bitrate
+
+
+def _maybe_downsample_mp3(filepath: str, row: dict) -> None:
+    """Re-encode a SoundCloud download down to the user's explicitly selected
+    bitrate, if it's lower than what SoundCloud actually served. YouTube tracks
+    get this from the conversion stage's own bitrate choice; SoundCloud downloads
+    already land as mp3 with no separate conversion step, so this is the only
+    place that request would otherwise get ignored."""
+    if use_max_bitrate:
+        return
+    native_kbps = row.get(COLUMN_BIT_RATE)
+    target_kbps = int(bitrate.rstrip("k"))
+    if not native_kbps or int(native_kbps) <= target_kbps:
+        return
+    tmp_path = os.path.splitext(filepath)[0] + "_downsampled.mp3"
+    if convert_to_mp3(filepath, tmp_path, bitrate):
+        os.replace(tmp_path, filepath)
+        row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(filepath)
 
 
 def run_download_stage(download_dir):
@@ -683,9 +849,14 @@ def run_download_stage(download_dir):
                 # A SoundCloud download already lands as mp3 (no conversion needed);
                 # a YouTube one lands as mp4 and still needs the conversion stage.
                 row["State"] = STATE_CONVERTED if existing_ext == FILE_EXTENSION_MP3 else STATE_DOWNLOADED
+                if not row.get(COLUMN_BIT_RATE):
+                    row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(
+                        os.path.join(download_dir, song_filename + existing_ext)
+                    )
             else:
                 try:
                     output_filepath = _download_track_audio(row, download_dir, song_filename)
+                    row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(output_filepath)
                     if not row.get(COLUMN_TEMPO):
                         try:
                             row[COLUMN_TEMPO] = str(round(estimate_tempo(output_filepath)))
@@ -700,6 +871,8 @@ def run_download_stage(download_dir):
                         artist_in_title=artist_in_title,
                     )
                     set_file_metadata_tags(filepath=output_filepath, metadata_tags=metadata_tags)
+                    if file_extension == FILE_EXTENSION_MP3:
+                        _maybe_downsample_mp3(output_filepath, row)
                 except BotDetection:
                     row["State"] = STATE_FAILED_BEFORE_RETRY
                     still_pending.append(row)
@@ -738,13 +911,18 @@ def run_conversion_stage(download_dir):
         if os.path.exists(mp3_path):
             if row is not None:
                 row["State"] = STATE_CONVERTED
+                if not row.get(COLUMN_BIT_RATE):
+                    row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(mp3_path)
         else:
             if row is not None:
                 row["State"] = STATE_CONVERTING
                 render_tracks()
-            success = convert_to_mp3(filepath, mp3_path, bitrate)
+            target_bitrate = _get_target_bitrate_kbps(row) if row is not None else bitrate
+            success = convert_to_mp3(filepath, mp3_path, target_bitrate)
             if row is not None:
                 row["State"] = STATE_CONVERTED if success else STATE_FAILED_CONVERTING
+                if success:
+                    row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(mp3_path)
             if success and delete_originals:
                 os.remove(filepath)
 

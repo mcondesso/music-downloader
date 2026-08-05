@@ -4428,7 +4428,22 @@ files = [
 [package.dependencies]
 requests = "*"
 
+[[package]]
+name = "ytmusicapi"
+version = "1.12.1"
+description = "Unofficial API for YouTube Music"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "ytmusicapi-1.12.1-py3-none-any.whl", hash = "sha256:2a53f6df504b97b93a4d41c804b699b46190207cb9d864fcf4edeb338b1f15d9"},
+    {file = "ytmusicapi-1.12.1.tar.gz", hash = "sha256:4e33f424db311ece1b9e5f29a51ade46b0697f6e2f284f8a40bcbd7219772755"},
+]
+
+[package.dependencies]
+requests = ">=2.22"
+
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "4b6ccb703dbbbc00206abd8a9412c46b92215065bc1f46d249447eb59636cbbe"
+content-hash = "903664d09e9452328031694f9edf40779c7af2fe955260ef395a32f2ee212489"

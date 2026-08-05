@@ -3,3 +3,5 @@
 /.vscode/
 **/__pycache__/
 /.spotify_cache
+/.ytmusic_cache.json
+/.env
