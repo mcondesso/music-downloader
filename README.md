@@ -26,6 +26,8 @@ All downloaded files will be saved as MP3 in a folder named after your input fil
 * `convert_tracks_to_mp3.py` converts all audio files in a directory to MP3 format (128kbps by default), preserving metadata. Use:
     * `poetry run python convert_tracks_to_mp3.py <download_folder> [-d]`
     * The `-d` flag deletes original files after conversion.
+* `check_hardware_compat.py` checks audio files for compatibility with hardware DJ players (Pioneer/AlphaTheta CDJ/XDJ and similar) and reports a fix for each problem it finds — fragmented MP4 downloads, unsupported codecs (HE-AAC, Opus, ALAC), out-of-range sample rates, and WAV header traps. Use:
+    * `poetry run python check_hardware_compat.py <file_or_folder>` (add `--all` to also list passing files)
 
 ---
 
