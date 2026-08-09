@@ -86,8 +86,8 @@ def _build_app_auth_manager(client_id: str) -> SpotifyPKCE:
 def build_login_url(client_id: str) -> str:
     """Start a login from the Streamlit app: create the PKCE auth manager and
     return the URL to send the user's browser to. `state` marks this as a
-    Spotify callback, since YouTube Music's redirect-based login lands on the
-    same app URL with its own `code` param."""
+    Spotify callback, so `handle_oauth_callback` in app.py knows which service
+    completed."""
     global _pending_auth_manager
     _pending_auth_manager = _build_app_auth_manager(client_id)
     return _pending_auth_manager.get_authorize_url(state="spotify")

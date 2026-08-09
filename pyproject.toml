@@ -19,6 +19,7 @@ librosa = "^0.10.2"
 requests = "^2.32.3"
 ytmusicapi = "^1.12.1"
 python-dotenv = "^1.0.1"
+tidalapi = "^0.8.11"
 
 
 [tool.poetry.group.dev.dependencies]

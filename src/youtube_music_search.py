@@ -1,8 +1,8 @@
 """Module for searching YouTube Music for a track match. Used as the matching
 source for every track regardless of where the playlist itself came from
-(Spotify or YouTube Music), replacing youtube_id_search.py's free-text search
-parsing with ytmusicapi's structured results (exact artist name, exact
-duration in seconds) - no login needed, search is fully public."""
+(Spotify or Tidal), replacing youtube_id_search.py's free-text search parsing
+with ytmusicapi's structured results (exact artist name, exact duration in
+seconds) - no login needed, search is fully public."""
 from typing import Dict, List, Optional
 
 from ytmusicapi import YTMusic
