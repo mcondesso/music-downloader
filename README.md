@@ -22,6 +22,7 @@ All downloaded files will be saved as MP3 in a folder named after your input fil
 * `create_db_with_youtube_ids.py` takes a CSV file with song data from Exportify as input and creates a new CSV containing:
     * For each song, we store "Track Name", "Artist Name(s)", "Duration (ms)", as well as a likely corresponding "Youtube ID".
 * `download_tracks.py` takes the CSV created by the previous step as input and downloads the songs from the matched youtube video.
+    * Audio-only downloads are losslessly remuxed from YouTube's fragmented DASH MP4 into a standard `.m4a` container, so the files also load on hardware players (DJ decks, car stereos) that reject fragmented MP4s.
     * After the download, the `Title` and `Contributing Artists` are set into the file's metadata tags.
 * `convert_tracks_to_mp3.py` converts all audio files in a directory to MP3 format (128kbps by default), preserving metadata. Use:
     * `poetry run python convert_tracks_to_mp3.py <download_folder> [-d]`
