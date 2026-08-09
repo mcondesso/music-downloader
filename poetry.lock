@@ -1145,6 +1145,18 @@ test = ["packaging", "pickleshare", "pytest", "pytest-asyncio (<0.22)", "testpat
 test-extra = ["curio", "ipython[test]", "matplotlib (!=3.2.0)", "nbformat", "numpy (>=1.23)", "pandas", "trio"]
 
 [[package]]
+name = "isodate"
+version = "0.7.2"
+description = "An ISO 8601 date/time/duration parser and formatter"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "isodate-0.7.2-py3-none-any.whl", hash = "sha256:28009937d8031054830160fce6d409ed342816b543597cece116d966c6d99e15"},
+    {file = "isodate-0.7.2.tar.gz", hash = "sha256:4cd1aa0f43ca76f4a6c6c0292a85f40b35ec2e43e315b59f06e6d32171a953e6"},
+]
+
+[[package]]
 name = "isort"
 version = "8.0.1"
 description = "A Python utility / library to sort Python imports."
@@ -1599,6 +1611,18 @@ python-dotenv = ">=0.10"
 doc = ["Sphinx (==6.*)", "numpydoc (<2.0)", "pydata-sphinx-theme (==0.13)", "sphinx_design"]
 lint = ["black (>=23.7.0)", "flake8 (>=6.0.0)", "flake8-absolute-import (>=1.0)", "flake8-docstrings (>=1.7.0)", "flake8-implicit-str-concat (==0.4.0)", "flake8-rst-docstrings (>=0.3)", "isort (>=5.12)", "pre-commit (>=3.3)"]
 test = ["coveralls (>=3.0,<4.0)", "pytest (>=3.0.0,<7.0.0)", "pytest-cov (>=2.5.1,<3.0)"]
+
+[[package]]
+name = "mpegdash"
+version = "0.4.1"
+description = "MPEG-DASH MPD(Media Presentation Description) Parser"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "mpegdash-0.4.1-py3-none-any.whl", hash = "sha256:788e559b73acbf9175422548c58a4c441486c0ce0633fa10f77097bfffeaad4d"},
+    {file = "mpegdash-0.4.1.tar.gz", hash = "sha256:e31d81e1f0184cc456553ef2a4a1de1c662972b8ce04b687c1854180912759e6"},
+]
 
 [[package]]
 name = "msgpack"
@@ -2783,6 +2807,17 @@ files = [
 tests = ["pytest"]
 
 [[package]]
+name = "pyaes"
+version = "1.6.1"
+description = "Pure-Python Implementation of the AES block-cipher and common modes of operation"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "pyaes-1.6.1.tar.gz", hash = "sha256:02c1b1405c38d3c370b085fb952dd8bea3fadcee6411ad99f312cc129c536d8f"},
+]
+
+[[package]]
 name = "pyarrow"
 version = "24.0.0"
 description = "Python library for Apache Arrow"
@@ -3044,6 +3079,17 @@ markers = "python_version == \"3.10\""
 files = [
     {file = "pytz-2026.3.post1-py2.py3-none-any.whl", hash = "sha256:dd95840dd199baea12d9cc096a1d452caa6596a1c1e4b5f3dbd1541855d5e815"},
     {file = "pytz-2026.3.post1.tar.gz", hash = "sha256:2211d3fcf9a797d3405cac96ac7f61d80e6a644f72a3309607282fe8a2010c5d"},
+]
+
+[[package]]
+name = "ratelimit"
+version = "2.2.1"
+description = "API rate limit decorator"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "ratelimit-2.2.1.tar.gz", hash = "sha256:af8a9b64b821529aca09ebaf6d8d279100d766f19e90b5059ac6a718ca6dee42"},
 ]
 
 [[package]]
@@ -3953,6 +3999,27 @@ files = [
 ]
 
 [[package]]
+name = "tidalapi"
+version = "0.8.11"
+description = "Unofficial API for TIDAL music streaming service."
+optional = false
+python-versions = "<4.0,>=3.8"
+groups = ["main"]
+files = [
+    {file = "tidalapi-0.8.11-py3-none-any.whl", hash = "sha256:1ed2485bb4634907afc434163fba22dc8a323d90cc92306973ab68bcdfef5c54"},
+    {file = "tidalapi-0.8.11.tar.gz", hash = "sha256:c8dea8c382be37be12413665c8b81a516ecd6e97c0997a565f2ae1b21a2ed165"},
+]
+
+[package.dependencies]
+isodate = ">=0.7.2,<0.8.0"
+mpegdash = ">=0.4.1,<0.5.0"
+pyaes = ">=1.6.1,<2.0.0"
+python-dateutil = ">=2.8.2,<3.0.0"
+ratelimit = ">=2.2.1,<3.0.0"
+requests = ">=2.32.3,<3.0.0"
+typing-extensions = ">=4.12.2,<5.0.0"
+
+[[package]]
 name = "toml"
 version = "0.10.2"
 description = "Python Library for Tom's Obvious, Minimal Language"
@@ -4446,4 +4513,4 @@ requests = ">=2.22"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "903664d09e9452328031694f9edf40779c7af2fe955260ef395a32f2ee212489"
+content-hash = "f08ea356ebeb8931a5cab918202de5dd9f80bf6e5e56b85d3a2bcec09eeec59c"

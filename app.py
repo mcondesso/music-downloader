@@ -17,6 +17,7 @@ from pathlib import Path
 import requests
 import spotipy
 import streamlit as st
+import tidalapi
 from pytubefix.exceptions import BotDetection
 
 from convert_tracks_to_mp3 import convert_to_mp3
@@ -60,21 +61,18 @@ from src.spotify_export import get_cached_spotify_client
 from src.spotify_export import list_user_playlists as list_spotify_playlists
 from src.spotify_export import logout as spotify_logout
 from src.tempo_estimation import estimate_tempo
+from src.tidal_export import export_playlist_to_csv as export_tidal_playlist_to_csv
+from src.tidal_export import get_cached_session as get_cached_tidal_session
+from src.tidal_export import list_user_playlists as list_tidal_playlists
+from src.tidal_export import logout as tidal_logout
+from src.tidal_export import start_login as start_tidal_login
+from src.tidal_export import try_complete_login as try_complete_tidal_login
 from src.youtube_download import get_audio_from_youtube
-from src.youtube_music_export import YouTubeMusicLoginError, YouTubeMusicNotConfiguredError
-from src.youtube_music_export import build_login_url as build_ytmusic_login_url
-from src.youtube_music_export import complete_login as complete_ytmusic_login
-from src.youtube_music_export import export_playlist_to_csv as export_ytmusic_playlist_to_csv
-from src.youtube_music_export import get_cached_ytmusic_client
-from src.youtube_music_export import list_user_playlists as list_ytmusic_playlists
-from src.youtube_music_export import logout as ytmusic_logout
 from src.youtube_music_search import (
     NoMatchingYoutubeMusicVideoFoundError,
     find_best_matching_youtube_music_video,
     get_youtube_music_search_results,
 )
-from ytmusicapi.auth.oauth.exceptions import BadOAuthClient, UnauthorizedOAuthClient
-from ytmusicapi.exceptions import YTMusicError
 
 # Covers HTTP errors from Spotify (SpotifyException), OAuth-specific failures
 # (SpotifyOauthError - both share the SpotifyBaseException base), and raw
@@ -83,10 +81,9 @@ from ytmusicapi.exceptions import YTMusicError
 # network hiccup shows a clean message instead of crashing the whole app.
 SPOTIFY_ERRORS = (requests.RequestException, spotipy.SpotifyBaseException)
 
-# Same idea as SPOTIFY_ERRORS, for YouTube Music: network failures plus every
-# ytmusicapi-raised error (YTMusicError covers server/user errors; the OAuth
-# client errors are a separate hierarchy, so listed explicitly).
-YOUTUBE_MUSIC_ERRORS = (requests.RequestException, YTMusicError, BadOAuthClient, UnauthorizedOAuthClient)
+# Same idea again, for Tidal: network failures plus every tidalapi-raised error
+# (TidalAPIError is the common base for all of them).
+TIDAL_ERRORS = (requests.RequestException, tidalapi.exceptions.TidalAPIError)
 
 STATE_PENDING = "Pending"
 STATE_MATCHED = "Matched"
@@ -150,10 +147,6 @@ SPOTIFY_SIDEBAR_STYLE = (
     "background-color: #1DB954; color: white; font-weight: 600; font-size: 0.85rem; "
     "padding: 8px 0; border-radius: 999px; text-decoration: none; margin-bottom: 12px; }"
     ".spotify-login-link:hover { background-color: #1ed760; }"
-    ".ytmusic-login-link { display: inline-block; width: 100%; text-align: center; "
-    "background-color: #FF0000; color: white; font-weight: 600; font-size: 0.85rem; "
-    "padding: 8px 0; border-radius: 999px; text-decoration: none; margin-bottom: 12px; }"
-    ".ytmusic-login-link:hover { background-color: #cc0000; }"
     ".playlist-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; "
     "border-bottom: 1px solid rgba(128,128,128,0.15); }"
     ".playlist-row img { width: 36px; height: 36px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }"
@@ -163,6 +156,118 @@ SPOTIFY_SIDEBAR_STYLE = (
     "white-space: nowrap; flex: 1; }"
     "</style>"
 )
+
+# Small original glyphs evoking each service's mark (not a reproduction of the
+# real trademarked artwork): Spotify's soundwave arcs, Tidal's diamond "T".
+# Two variants each:
+# - "glyph" is transparent-background, `currentColor` only - used on the active
+#   tab, which already supplies the brand-colored background itself.
+# - "badge" bakes in its own brand-colored shape (Spotify's circle, YouTube's
+#   rounded rectangle, Tidal's rounded square) plus a white glyph - a
+#   self-contained icon, used on inactive tabs sitting on a gray background.
+SPOTIFY_LOGO_GLYPH_SVG = (
+    '<svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+    '<path d="M6 9.5C9 8 15 8 18 9.8" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/>'
+    '<path d="M6.5 12.3C9.3 11 14.8 11 17.3 12.6" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>'
+    '<path d="M7 15C9.5 14 13.8 14 16 15.2" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/>'
+    "</svg>"
+)
+TIDAL_LOGO_GLYPH_SVG = (
+    '<svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+    '<rect x="6.26" y="8.38" width="3" height="3" fill="currentColor" transform="rotate(45 7.76 9.88)"/>'
+    '<rect x="10.5" y="8.38" width="3" height="3" fill="currentColor" transform="rotate(45 12 9.88)"/>'
+    '<rect x="14.74" y="8.38" width="3" height="3" fill="currentColor" transform="rotate(45 16.24 9.88)"/>'
+    '<rect x="10.5" y="12.62" width="3" height="3" fill="currentColor" transform="rotate(45 12 14.12)"/>'
+    "</svg>"
+)
+
+SPOTIFY_LOGO_BADGE_SVG = (
+    '<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+    '<circle cx="12" cy="12" r="12" fill="#1DB954"/>'
+    '<path d="M6 9.5C9 8 15 8 18 9.8" stroke="white" stroke-width="1.6" fill="none" stroke-linecap="round"/>'
+    '<path d="M6.5 12.3C9.3 11 14.8 11 17.3 12.6" stroke="white" stroke-width="1.4" fill="none" stroke-linecap="round"/>'
+    '<path d="M7 15C9.5 14 13.8 14 16 15.2" stroke="white" stroke-width="1.2" fill="none" stroke-linecap="round"/>'
+    "</svg>"
+)
+TIDAL_LOGO_BADGE_SVG = (
+    '<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+    '<rect x="1" y="1" width="22" height="22" rx="6" fill="#000000"/>'
+    '<rect x="6.26" y="8.38" width="3" height="3" fill="white" transform="rotate(45 7.76 9.88)"/>'
+    '<rect x="10.5" y="8.38" width="3" height="3" fill="white" transform="rotate(45 12 9.88)"/>'
+    '<rect x="14.74" y="8.38" width="3" height="3" fill="white" transform="rotate(45 16.24 9.88)"/>'
+    '<rect x="10.5" y="12.62" width="3" height="3" fill="white" transform="rotate(45 12 14.12)"/>'
+    "</svg>"
+)
+
+# (name, active-state glyph svg, inactive-state badge svg, brand color) for the
+# playlist-source tab bar.
+PLAYLIST_SOURCES = [
+    ("Spotify", SPOTIFY_LOGO_GLYPH_SVG, SPOTIFY_LOGO_BADGE_SVG, "#1DB954"),
+    ("Tidal", TIDAL_LOGO_GLYPH_SVG, TIDAL_LOGO_BADGE_SVG, "#000000"),
+]
+
+# Zero gap between the three source-tab columns, so they sit flush against
+# each other like a real tab strip instead of as separate spaced-out chips.
+SOURCE_TAB_ROW_STYLE = (
+    '<style>.st-key-source_tab_row [data-testid="stHorizontalBlock"] { gap: 0 !important; }</style>'
+)
+
+
+def build_source_tab_style(container_key: str, color: str, corner: str, active: bool) -> str:
+    """CSS for one playlist-source tab: gray background with the icon in its
+    own brand color when inactive, full brand-color background with a white
+    icon (+ name label) when active - the width itself comes from the column
+    ratio, not from anything here. The icon + label sit in an
+    absolutely-positioned row on top of an invisible full-size button
+    underneath, so the visible shape is a single flat badge rather than an
+    icon stacked above a separate button box. `corner` ("first"/"middle"/
+    "last") rounds only the tab strip's outer ends."""
+    radius = {
+        "first": "10px 0 0 10px",
+        "middle": "0",
+        "last": "0 10px 10px 0",
+    }[corner]
+    bg = color if active else "rgba(128,128,128,0.08)"
+    icon_color = "white" if active else color
+    return (
+        "<style>"
+        # .st-key-<key> is applied directly to the stVerticalBlock produced by
+        # st.container(key=...) - not some separate outer wrapper - so it's the
+        # positioning context itself, and its own height must be forced with
+        # !important since Streamlit's own rule otherwise wins.
+        f".st-key-{container_key} {{"
+        f"position: relative !important;"
+        f"height: 40px !important;"
+        f"min-height: 40px !important;"
+        f"background-color: {bg} !important;"
+        f"border-radius: {radius} !important;"
+        f"overflow: hidden !important;"
+        f"gap: 0 !important;"
+        f"transition: background-color 0.2s ease;"
+        f"}}"
+        f".st-key-{container_key} .tab-content {{"
+        f"position: absolute !important;"
+        f"top: 0 !important; left: 0 !important; right: 0 !important;"
+        f"height: 40px !important;"
+        f"display: flex; align-items: center; justify-content: center; gap: 8px;"
+        f"padding: 0 12px; pointer-events: none; white-space: nowrap; overflow: hidden;"
+        f"color: {icon_color};"
+        f"}}"
+        f".st-key-{container_key} .tab-label {{ color: white; font-weight: 600; font-size: 0.85rem; }}"
+        f'.st-key-{container_key} [data-testid="stButton"] {{'
+        f"position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important;"
+        f"height: 40px !important;"
+        f"}}"
+        f".st-key-{container_key} button {{"
+        f"width: 100%; height: 100%;"
+        f"background-color: transparent !important;"
+        f"border: none !important;"
+        f"box-shadow: none !important;"
+        f"opacity: 0 !important;"
+        f"}}"
+        "</style>"
+    )
+
 
 STEPS = ["Match", "Download", "Convert"]
 
@@ -303,9 +408,9 @@ def extract_youtube_id(text: str):
     match = YOUTUBE_URL_ID_RE.search(text)
     return match.group(1) if match else None
 
-st.set_page_config(page_title="Music Downloader", page_icon="🎵", layout="wide")
-st.title("Music Downloader")
-st.caption("Turn a Spotify or YouTube Music playlist into a folder of tagged MP3s.")
+st.set_page_config(page_title="Track Tracker", page_icon="🎵", layout="wide")
+st.title("Track Tracker")
+st.caption("Turn a Spotify or Tidal playlist into a folder of tagged MP3s.")
 
 
 def build_tracks(csv_path: str):
@@ -383,22 +488,24 @@ def handle_spotify_playlist_selected(playlist: dict):
     activate_csv_source(csv_bytes, csv_name, f"spotify:{playlist['id']}")
 
 
-def handle_ytmusic_playlist_selected(playlist: dict):
-    """Export the chosen YouTube Music playlist to a CSV and load it exactly like an upload."""
+def handle_tidal_playlist_selected(playlist: dict):
+    """Export the chosen Tidal playlist to a CSV and load it exactly like an upload."""
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp_csv_path = tmp.name
-    export_ytmusic_playlist_to_csv(st.session_state.ytmusic_client, playlist["id"], tmp_csv_path)
+    export_tidal_playlist_to_csv(st.session_state.tidal_session, playlist["id"], tmp_csv_path)
     with open(tmp_csv_path, "rb") as f:
         csv_bytes = f.read()
     csv_name = sanitize_filename(playlist["name"]) + ".csv"
-    activate_csv_source(csv_bytes, csv_name, f"ytmusic:{playlist['id']}")
+    activate_csv_source(csv_bytes, csv_name, f"tidal:{playlist['id']}")
 
 
 def handle_oauth_callback():
-    """Both Spotify and YouTube Music use a redirect-based OAuth flow that lands
-    back on this same app URL with a `code` param - `state` (set when building
-    each login URL) says which one just completed. Runs once, before either
-    sidebar panel renders, regardless of which one is currently selected."""
+    """Spotify uses a redirect-based OAuth flow that lands back on this same
+    app URL with a `code` param - `state` (set when building the login URL)
+    marks it as a Spotify callback. Tidal uses a device-code flow instead (see
+    render_tidal_sidebar), so it has no callback to handle here. Runs once,
+    before any sidebar panel renders, regardless of which one is currently
+    selected."""
     code = st.query_params.get("code")
     state = st.query_params.get("state")
     if not code:
@@ -409,13 +516,6 @@ def handle_oauth_callback():
             st.session_state.spotify_client = complete_spotify_login(code)
         except SPOTIFY_ERRORS + (RuntimeError,) as exc:
             st.sidebar.error(f"Spotify login failed: {exc}")
-        st.query_params.clear()
-        st.rerun()
-    elif state == "ytmusic" and "ytmusic_client" not in st.session_state:
-        try:
-            st.session_state.ytmusic_client = complete_ytmusic_login(code)
-        except YOUTUBE_MUSIC_ERRORS + (YouTubeMusicLoginError,) as exc:
-            st.sidebar.error(f"YouTube Music login failed: {exc}")
         st.query_params.clear()
         st.rerun()
 
@@ -482,47 +582,69 @@ def render_spotify_sidebar():
                     st.rerun()
 
 
-def render_youtube_music_sidebar():
-    """Left pane: log into YouTube Music, then pick a playlist from a list -
-    same shape and redirect-based login mechanics as render_spotify_sidebar."""
-    st.sidebar.subheader("YouTube Music")
+def render_tidal_sidebar():
+    """Left pane: log into Tidal via a device-code flow (tidalapi ships its own
+    working client credentials, unlike Spotify - no developer registration
+    needed), then pick a playlist from a list."""
+    st.sidebar.subheader("Tidal")
 
-    if "ytmusic_client" not in st.session_state:
-        cached_client = get_cached_ytmusic_client()
-        if cached_client:
-            st.session_state.ytmusic_client = cached_client
+    if "tidal_session" not in st.session_state:
+        cached_session = get_cached_tidal_session()
+        if cached_session:
+            st.session_state.tidal_session = cached_session
 
-    if "ytmusic_client" not in st.session_state:
+    if "tidal_session" not in st.session_state:
         st.sidebar.caption(
-            "Rather than uploading a CSV, you can log into YouTube Music and your "
-            "playlists will be displayed here."
+            "Rather than uploading a CSV, you can log into Tidal and your "
+            "playlists will be displayed here. Requires an active Tidal "
+            "subscription or trial - unlike Spotify, Tidal has no free tier."
         )
-        try:
-            login_url = build_ytmusic_login_url()
-        except YouTubeMusicNotConfiguredError as exc:
-            st.sidebar.error(str(exc))
+        if "tidal_link_login" not in st.session_state:
+            if st.sidebar.button("Login to Tidal", key="tidal_login_start"):
+                try:
+                    st.session_state.tidal_link_login = start_tidal_login()
+                except TIDAL_ERRORS as exc:
+                    st.sidebar.error(f"Couldn't start Tidal login: {exc}")
+                else:
+                    st.rerun()
         else:
+            link_login = st.session_state.tidal_link_login
+            verification_url = f"https://{link_login.verification_uri_complete}"
             st.sidebar.markdown(
-                SPOTIFY_SIDEBAR_STYLE + f'<a class="ytmusic-login-link" href="{html.escape(login_url)}" '
-                'target="_self">Login to YouTube Music</a>',
-                unsafe_allow_html=True,
+                f"Go to [{verification_url}]({verification_url}) and confirm the code "
+                f"**{link_login.user_code}**, then click below."
             )
+            if st.sidebar.button("I've authorized - Continue", key="tidal_login_continue"):
+                try:
+                    session = try_complete_tidal_login(link_login)
+                except TIDAL_ERRORS as exc:
+                    st.sidebar.error(f"Tidal login failed: {exc}")
+                    del st.session_state["tidal_link_login"]
+                else:
+                    if session is None:
+                        st.sidebar.warning(
+                            "Not authorized yet - finish the steps above, then click again."
+                        )
+                    else:
+                        st.session_state.tidal_session = session
+                        del st.session_state["tidal_link_login"]
+                        st.rerun()
         return
 
-    if st.sidebar.button("Log out", key="ytmusic_logout"):
-        ytmusic_logout()
-        for key in ("ytmusic_client", "ytmusic_playlists"):
+    if st.sidebar.button("Log out", key="tidal_logout"):
+        tidal_logout()
+        for key in ("tidal_session", "tidal_playlists"):
             st.session_state.pop(key, None)
         st.rerun()
 
-    if "ytmusic_playlists" not in st.session_state:
+    if "tidal_playlists" not in st.session_state:
         try:
-            st.session_state.ytmusic_playlists = list_ytmusic_playlists(st.session_state.ytmusic_client)
-        except YOUTUBE_MUSIC_ERRORS as exc:
+            st.session_state.tidal_playlists = list_tidal_playlists(st.session_state.tidal_session)
+        except TIDAL_ERRORS as exc:
             st.sidebar.error(f"Couldn't load playlists: {exc}")
 
     st.sidebar.markdown(SPOTIFY_SIDEBAR_STYLE, unsafe_allow_html=True)
-    for playlist in st.session_state.get("ytmusic_playlists", []):
+    for playlist in st.session_state.get("tidal_playlists", []):
         image_col, name_col, select_col = st.sidebar.columns([1, 4, 1])
         with image_col:
             if playlist["image_url"]:
@@ -535,12 +657,41 @@ def render_youtube_music_sidebar():
                 unsafe_allow_html=True,
             )
         with select_col:
-            if st.button("➜", key=f"select_ytmusic_playlist_{playlist['id']}"):
+            if st.button("➜", key=f"select_tidal_playlist_{playlist['id']}"):
                 try:
-                    handle_ytmusic_playlist_selected(playlist)
-                except YOUTUBE_MUSIC_ERRORS as exc:
+                    handle_tidal_playlist_selected(playlist)
+                except TIDAL_ERRORS as exc:
                     st.sidebar.error(f"Couldn't load '{playlist['name']}': {exc}")
                 else:
+                    st.rerun()
+
+
+def render_source_tab_bar():
+    """Tabs for picking the playlist source, flush against each other with no
+    gaps: each tab is a flat badge in its own brand color, a small square when
+    inactive (logo only) and a wider rectangle when active (logo + name) - the
+    width itself comes from the column ratio. A real st.button (made fully
+    invisible but still clickable) is layered on top of the visible content
+    via absolute positioning, so clicking is a normal Streamlit rerun over the
+    existing connection, not a browser navigation/full page reload."""
+    st.session_state.setdefault("playlist_source", PLAYLIST_SOURCES[0][0])
+    active_source = st.session_state.playlist_source
+
+    with st.sidebar.container(key="source_tab_row"):
+        st.markdown(SOURCE_TAB_ROW_STYLE, unsafe_allow_html=True)
+        ratios = [3 if name == active_source else 1 for name, _, _, _ in PLAYLIST_SOURCES]
+        tab_cols = st.sidebar.columns(ratios, gap=None)
+        for i, (col, (name, glyph_svg, badge_svg, color)) in enumerate(zip(tab_cols, PLAYLIST_SOURCES)):
+            is_active = name == active_source
+            tab_key = f"tab_{name.replace(' ', '_').lower()}"
+            corner = "first" if i == 0 else "last" if i == len(PLAYLIST_SOURCES) - 1 else "middle"
+            with col, st.container(key=tab_key, border=False):
+                st.markdown(build_source_tab_style(tab_key, color, corner, is_active), unsafe_allow_html=True)
+                logo_svg = glyph_svg if is_active else badge_svg
+                label_html = f'<span class="tab-label">{html.escape(name)}</span>' if is_active else ""
+                st.markdown(f'<div class="tab-content">{logo_svg}{label_html}</div>', unsafe_allow_html=True)
+                if st.button("select", key=f"{tab_key}_btn", width="stretch"):
+                    st.session_state.playlist_source = name
                     st.rerun()
 
 
@@ -548,13 +699,12 @@ def render_playlist_sidebar():
     """Left pane entry point: let the user pick which service supplies playlist
     data, then render that service's login/playlist-picker flow."""
     handle_oauth_callback()
-    source = st.sidebar.radio(
-        "Playlist source", ["Spotify", "YouTube Music"], key="playlist_source"
-    )
+    render_source_tab_bar()
+    source = st.session_state.playlist_source
     if source == "Spotify":
         render_spotify_sidebar()
     else:
-        render_youtube_music_sidebar()
+        render_tidal_sidebar()
 
 
 render_playlist_sidebar()
