@@ -4,3 +4,4 @@
 **/__pycache__/
 /.spotify_cache
 /.tidal_cache.json
+/.env

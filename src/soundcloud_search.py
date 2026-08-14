@@ -7,7 +7,12 @@ from typing import Dict, List, Optional
 
 import requests
 
-from src.data_handling import COLUMN_TRACK_DURATION, get_song_search_string
+from src.data_handling import (
+    DURATION_THRESHOLD,
+    FALLBACK_DURATION_THRESHOLD,
+    find_closest_matching_result,
+    get_song_search_string,
+)
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -17,9 +22,6 @@ HEADERS = {"User-Agent": USER_AGENT}
 
 SEARCH_URL = "https://api-v2.soundcloud.com/search/tracks"
 RESOLVE_URL = "https://api-v2.soundcloud.com/resolve"
-
-DURATION_THRESHOLD = 0.05
-FALLBACK_DURATION_THRESHOLD = 0.50
 
 _cached_client_id: Optional[str] = None
 
@@ -112,33 +114,30 @@ def search_soundcloud_tracks(query: str, limit: int = 10) -> List[dict]:
             continue
         if not _has_usable_progressive_stream(track):
             continue
+        uploader = track.get("user", {}).get("username", "")
         results.append(
             {
                 "permalink_url": track["permalink_url"],
                 "duration_s": track["duration"] // 1000,
+                "title": f"{uploader} {track.get('title', '')}".strip(),
             }
         )
     return results
 
 
 def find_best_matching_soundcloud_track(db_entry: Dict, search_results: List[dict]) -> str:
-    """Pick the best-matching SoundCloud track by duration, mirroring
-    find_best_matching_youtube_id's strict-then-fallback threshold approach."""
-    db_duration = db_entry[COLUMN_TRACK_DURATION]
-
-    for result in search_results:
-        if _is_duration_acceptable(db_duration, result["duration_s"], strict=True):
-            return result["permalink_url"]
-
-    for result in search_results:
-        if _is_duration_acceptable(db_duration, result["duration_s"], strict=False):
-            return result["permalink_url"]
-
-    raise NoMatchingSoundcloudTrackFoundError(
-        f"Unable to find a matching SoundCloud track for {get_song_search_string(db_entry)}"
+    """Pick the best-matching SoundCloud track: the closest-duration result, among
+    those within threshold, whose title/uploader text plausibly matches the song -
+    duration alone isn't enough to tell two unrelated tracks of similar length apart."""
+    match = find_closest_matching_result(
+        db_entry, search_results, "duration_s", "title", DURATION_THRESHOLD
     )
-
-
-def _is_duration_acceptable(db_duration: int, result_duration: int, strict: bool = True) -> bool:
-    threshold = DURATION_THRESHOLD if strict else FALLBACK_DURATION_THRESHOLD
-    return abs(db_duration - result_duration) / db_duration < threshold
+    if match is None:
+        match = find_closest_matching_result(
+            db_entry, search_results, "duration_s", "title", FALLBACK_DURATION_THRESHOLD
+        )
+    if match is None:
+        raise NoMatchingSoundcloudTrackFoundError(
+            f"Unable to find a matching SoundCloud track for {get_song_search_string(db_entry)}"
+        )
+    return match["permalink_url"]
