@@ -20,6 +20,8 @@ import streamlit as st
 import tidalapi
 from pytubefix.exceptions import BotDetection
 
+from check_hardware_compat import FAIL as HARDWARE_COMPAT_FAIL
+from check_hardware_compat import check_file as check_hardware_compat
 from convert_tracks_to_mp3 import convert_to_mp3
 from src.csv_handling import read_csv, write_csv
 from src.data_handling import (
@@ -38,6 +40,7 @@ from src.data_handling import (
     get_youtube_url,
     sanitize_filename,
 )
+from src.device_profiles import DEVICE_PROFILES
 from src.file_handling import scan_directory_for_audio_files
 from src.file_metadata import (
     FILE_EXTENSION_MP3,
@@ -100,6 +103,10 @@ STATE_FAILED_CONVERTING = "Failed converting"
 MAX_BOT_DETECTION_RETRIES = 3
 RETRY_BACKOFF_BASE_SECONDS = 5
 
+# Row key (not a CSV column - never added to display_columns) holding this
+# track's check_hardware_compat.py findings for the selected target device.
+ROW_KEY_HARDWARE_COMPAT_FINDINGS = "HardwareCompatFindings"
+
 # (r, g, b) tint per state: gray=not started, blue=matched, amber=in progress/transient,
 # green=success, red=terminal failure.
 STATE_COLORS = {
@@ -124,6 +131,10 @@ TRACK_CARD_STYLE = (
     ".track-artist { font-size: 0.85rem; opacity: 0.65; margin-left: 4px; }"
     ".track-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }"
     ".state-badge { font-size: 0.72rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }"
+    ".compat-badge { font-size: 0.72rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; "
+    "white-space: nowrap; cursor: help; }"
+    ".compat-badge.compat-warn { background-color: rgba(255,152,0,0.15); color: rgb(255,152,0); }"
+    ".compat-badge.compat-fail { background-color: rgba(244,67,54,0.15); color: rgb(244,67,54); }"
     ".yt-link, .yt-link-disabled, .sc-link { display: inline-block; font-size: 0.78rem; font-weight: 600; "
     "padding: 6px 14px; border-radius: 6px; text-decoration: none; white-space: nowrap; border: none; }"
     ".yt-link { background-color: #FF0000; color: white; box-shadow: 0 1px 2px rgba(0,0,0,0.25); cursor: pointer; }"
@@ -347,6 +358,18 @@ def _build_track_state_badge_html(row: dict) -> str:
     )
 
 
+def _build_hardware_compat_badge_html(row: dict) -> str:
+    findings = row.get(ROW_KEY_HARDWARE_COMPAT_FINDINGS)
+    if not findings:
+        return ""
+    worst_fail = any(level == HARDWARE_COMPAT_FAIL for level, _ in findings)
+    css_class = "compat-fail" if worst_fail else "compat-warn"
+    icon = "⛔" if worst_fail else "⚠"
+    tooltip = html.escape(" | ".join(f"{level}: {message}" for level, message in findings))
+    count = len(findings)
+    return f'<span class="compat-badge {css_class}" title="{tooltip}">{icon} {count}</span>'
+
+
 def _build_track_bottom_html(row: dict) -> str:
     annotation_parts = []
     duration_str = _format_duration(row.get(COLUMN_TRACK_DURATION))
@@ -389,7 +412,8 @@ def build_track_card_html(row: dict) -> str:
         '<div class="track-card-top">'
         f'<div><span class="track-title">{track_name}</span>'
         f'<span class="track-artist">{artist_name}</span></div>'
-        f'<div class="track-actions">{_build_track_state_badge_html(row)}{yt_element}</div>'
+        f'<div class="track-actions">{_build_track_state_badge_html(row)}'
+        f"{_build_hardware_compat_badge_html(row)}{yt_element}</div>"
         "</div>" + _build_track_bottom_html(row) + "</div>"
     )
 
@@ -777,16 +801,40 @@ def render_unmatched_tracks_panel():
 
 options_col, steps_col = st.columns([1, 3])
 with options_col:
-    bitrate_checkbox_col, bitrate_select_col = st.columns([2, 3], vertical_alignment="center")
-    with bitrate_checkbox_col:
-        use_max_bitrate = st.checkbox("Max available bitrate", value=True)
-    with bitrate_select_col:
-        bitrate = st.selectbox(
-            "MP3 bitrate",
-            ["128k", "192k", "256k", "320k"],
-            index=0,
-            label_visibility="collapsed",
-            disabled=use_max_bitrate,
+    target_device = st.selectbox(
+        "Target device",
+        ["Custom"] + list(DEVICE_PROFILES.keys()),
+        index=0,
+        help="Caps the MP3 bitrate at what the device supports, and flags each "
+        "downloaded track with hardware-compatibility warnings for that device.",
+    )
+    if target_device == "Custom":
+        device_profile = None
+        bitrate_checkbox_col, bitrate_select_col = st.columns([2, 3], vertical_alignment="center")
+        with bitrate_checkbox_col:
+            use_max_bitrate = st.checkbox("Max available bitrate", value=True)
+        with bitrate_select_col:
+            bitrate = st.selectbox(
+                "MP3 bitrate",
+                ["128k", "192k", "256k", "320k"],
+                index=0,
+                label_visibility="collapsed",
+                disabled=use_max_bitrate,
+            )
+    else:
+        device_profile = DEVICE_PROFILES[target_device]
+        use_max_bitrate = True
+        bitrate = f"{device_profile.max_mp3_kbps}k"
+        supported_formats = ", ".join(fmt.upper() for fmt in device_profile.formats)
+        sample_rate_note = (
+            f"up to {device_profile.max_sample_rate_hz // 1000}kHz"
+            if device_profile.max_sample_rate_hz
+            else "no device ceiling"
+        )
+        st.caption(
+            f"Supports {supported_formats} · MP3 capped at {device_profile.max_mp3_kbps}kbps · "
+            f"sample rate {sample_rate_note} (output is still MP3-only — tracks that would "
+            f"need another format to fit this device show up as warnings after download)"
         )
     artist_col, delete_col = st.columns(2)
     with artist_col:
@@ -967,6 +1015,16 @@ def _maybe_downsample_mp3(filepath: str, row: dict) -> None:
         row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(filepath)
 
 
+def _run_hardware_compat_check(row: dict, filepath: str) -> None:
+    """Check the final output file against the selected target device (or the
+    generic device-agnostic warnings, if "Custom" is selected) and stash the
+    findings on the row for the track card to display."""
+    try:
+        row[ROW_KEY_HARDWARE_COMPAT_FINDINGS] = check_hardware_compat(filepath, device_profile=device_profile)
+    except Exception as exc:
+        print(f"Hardware-compat check failed for '{filepath}': {exc}")
+
+
 def run_download_stage(download_dir):
     pending_rows = [row for row in st.session_state.tracks if row["State"] == STATE_MATCHED]
     total = len(pending_rows)
@@ -999,10 +1057,11 @@ def run_download_stage(download_dir):
                 # A SoundCloud download already lands as mp3 (no conversion needed);
                 # a YouTube one lands as mp4 and still needs the conversion stage.
                 row["State"] = STATE_CONVERTED if existing_ext == FILE_EXTENSION_MP3 else STATE_DOWNLOADED
+                existing_filepath = os.path.join(download_dir, song_filename + existing_ext)
                 if not row.get(COLUMN_BIT_RATE):
-                    row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(
-                        os.path.join(download_dir, song_filename + existing_ext)
-                    )
+                    row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(existing_filepath)
+                if existing_ext == FILE_EXTENSION_MP3 and ROW_KEY_HARDWARE_COMPAT_FINDINGS not in row:
+                    _run_hardware_compat_check(row, existing_filepath)
             else:
                 try:
                     output_filepath = _download_track_audio(row, download_dir, song_filename)
@@ -1023,6 +1082,7 @@ def run_download_stage(download_dir):
                     set_file_metadata_tags(filepath=output_filepath, metadata_tags=metadata_tags)
                     if file_extension == FILE_EXTENSION_MP3:
                         _maybe_downsample_mp3(output_filepath, row)
+                        _run_hardware_compat_check(row, output_filepath)
                 except BotDetection:
                     row["State"] = STATE_FAILED_BEFORE_RETRY
                     still_pending.append(row)
@@ -1063,6 +1123,8 @@ def run_conversion_stage(download_dir):
                 row["State"] = STATE_CONVERTED
                 if not row.get(COLUMN_BIT_RATE):
                     row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(mp3_path)
+                if ROW_KEY_HARDWARE_COMPAT_FINDINGS not in row:
+                    _run_hardware_compat_check(row, mp3_path)
         else:
             if row is not None:
                 row["State"] = STATE_CONVERTING
@@ -1073,6 +1135,7 @@ def run_conversion_stage(download_dir):
                 row["State"] = STATE_CONVERTED if success else STATE_FAILED_CONVERTING
                 if success:
                     row[COLUMN_BIT_RATE] = get_file_bit_rate_kbps(mp3_path)
+                    _run_hardware_compat_check(row, mp3_path)
             if success and delete_originals:
                 os.remove(filepath)
 
