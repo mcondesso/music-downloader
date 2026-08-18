@@ -207,12 +207,19 @@ def find_closest_matching_result(
     not settle for a same-length but differently-versioned result."""
     db_duration = db_entry[COLUMN_TRACK_DURATION]
     expected = get_song_search_string(db_entry)
+    # A multi-artist collab's own name words (e.g. 3 credited artists) can by
+    # themselves clear is_title_match's overlap threshold even when the
+    # candidate is a completely different song by that same collab - the track
+    # name's own words barely move the ratio. Requiring at least one of them to
+    # actually appear closes that hole without needing an exact title match.
+    track_name_words = set(_normalize_search_words(db_entry[COLUMN_TRACK_NAME]))
     candidates = [
         result
         for result in search_results
         if abs(db_duration - result[duration_key]) / db_duration < duration_threshold
         and is_title_match(expected, result[title_key], threshold=title_threshold)
         and not has_unexpected_version_marker(expected, result[title_key])
+        and (not track_name_words or track_name_words & set(_normalize_search_words(result[title_key])))
     ]
     if not candidates:
         return None
