@@ -5,10 +5,12 @@ from typing import Dict, List
 
 from youtube_search import YoutubeSearch
 
-from src.data_handling import COLUMN_TRACK_DURATION, get_song_search_string
-
-DURATION_THRESHOLD = 0.05
-FALLBACK_DURATION_THRESHOLD = 0.50  # 50% threshold for fallback matching
+from src.data_handling import (
+    DURATION_THRESHOLD,
+    FALLBACK_DURATION_THRESHOLD,
+    find_closest_matching_result,
+    get_song_search_string,
+)
 
 
 class NoMatchingYoutubeVideoFoundError(Exception):
@@ -30,6 +32,7 @@ def get_youtube_search_results(input_string: str, n_results: int = 5) -> List[di
             "Duration (s)": _youtube_result_duration_to_seconds(
                 str(result["duration"])
             ),
+            "Title": f"{result.get('channel', '')} {result.get('title', '')}".strip(),
         }
         for result in raw_results
     ]
@@ -88,36 +91,22 @@ def _find_time_string_format(time_str: str) -> str:
 
 def find_best_matching_youtube_id(db_entry: Dict, search_results: List[dict]) -> str:
     """Function to pick the best match out of the results.
-    
-    We first try to find a video with duration close to the Spotify track (5% threshold).
-    If no exact match is found, we fall back to the best available match within 50% threshold,
-    prioritizing by YouTube's relevance ranking.
+
+    We first try to find the closest-duration video within a strict 5% threshold
+    whose title/channel text plausibly matches the song. If nothing qualifies, we
+    fall back to a relaxed 15% duration threshold, still gated by the same title
+    check - duration alone isn't enough to tell two unrelated videos of similar
+    length apart.
     """
-    db_duration = db_entry[COLUMN_TRACK_DURATION]
-    
-    # First pass: try to find exact matches within strict threshold
-    for result in search_results:
-        if _is_video_duration_acceptable(db_duration, result["Duration (s)"], strict=True):
-            return result["ID"]
-    
-    # Second pass: find fallback matches within relaxed threshold
-    fallback_candidates = []
-    for result in search_results:
-        if _is_video_duration_acceptable(db_duration, result["Duration (s)"], strict=False):
-            return result["ID"]
-    
-    raise NoMatchingYoutubeVideoFoundError(
-        f"Unable to find a matching youtube video for {get_song_search_string(db_entry)}"
+    match = find_closest_matching_result(
+        db_entry, search_results, "Duration (s)", "Title", DURATION_THRESHOLD
     )
-
-
-def _is_video_duration_acceptable(db_duration: int, result_duration: int, strict: bool = True) -> bool:
-    """Function to define the threshold whether a youtube stream duration is a valid match.
-    
-    Args:
-        db_duration: Duration from Spotify track in seconds
-        result_duration: Duration from YouTube video in seconds  
-        strict: If True, use strict 5% threshold. If False, use 50% fallback threshold.
-    """
-    threshold = DURATION_THRESHOLD if strict else FALLBACK_DURATION_THRESHOLD
-    return abs(db_duration - result_duration) / db_duration < threshold
+    if match is None:
+        match = find_closest_matching_result(
+            db_entry, search_results, "Duration (s)", "Title", FALLBACK_DURATION_THRESHOLD
+        )
+    if match is None:
+        raise NoMatchingYoutubeVideoFoundError(
+            f"Unable to find a matching youtube video for {get_song_search_string(db_entry)}"
+        )
+    return match["ID"]

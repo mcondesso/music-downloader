@@ -13,6 +13,13 @@ pytubefix = "10.11.0"
 youtube-search = "2.2.0"
 tqdm = "4.70.0"
 moviepy = "^2.2.1"
+streamlit = "^1.60.0"
+spotipy = "^2.25.1"
+librosa = "^0.10.2"
+requests = "^2.32.3"
+ytmusicapi = "^1.12.1"
+python-dotenv = "^1.0.1"
+tidalapi = "^0.8.11"
 
 
 [tool.poetry.group.dev.dependencies]

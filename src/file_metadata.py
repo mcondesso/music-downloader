@@ -3,6 +3,7 @@
 import os
 
 from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3NoHeaderError
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4
 
@@ -40,6 +41,23 @@ METADATA_CLASSES = {
 }
 
 
+def get_file_bit_rate_kbps(filepath: str) -> str:
+    """Read a file's actual audio bitrate in kbps straight from its stream info.
+    Safe to call on a freshly downloaded file before any tags have been written -
+    unlike extract_metadata_from_file, this only touches stream info, never tags."""
+    ext = os.path.splitext(filepath)[1].lower()
+    try:
+        if ext == FILE_EXTENSION_MP3:
+            info = MP3(filepath).info
+        elif ext == FILE_EXTENSION_MP4:
+            info = MP4(filepath).info
+        else:
+            return ""
+        return str(int(info.bitrate // 1000)) if hasattr(info, "bitrate") else ""
+    except Exception:
+        return ""
+
+
 def extract_metadata_from_file(filepath: str) -> dict:
     """Extract metadata from an audio file (artist, title, duration, genres, tempo)."""
     ext = os.path.splitext(filepath)[1].lower()
@@ -71,8 +89,8 @@ def extract_metadata_from_file(filepath: str) -> dict:
             metadata["genres"] = audio.tags.get("©gen", [""])[0]
             metadata["tempo"] = str(audio.tags.get("tmpo", [""])[0])
             metadata["duration"] = int(audio.info.length)
-            # Bit rate not available for mp4
-            metadata["bit_rate"] = ""
+            if hasattr(audio.info, "bitrate"):
+                metadata["bit_rate"] = str(int(audio.info.bitrate // 1000))
     except Exception as e:
         pass  # Could log error if needed
     return metadata
@@ -121,7 +139,15 @@ def set_file_metadata_tags(filepath: str, metadata_tags: dict):
     """This function sets the provided metadata tags onto a file."""
     file_extension = os.path.splitext(filepath)[1]
     tag_handling_class = METADATA_CLASSES[file_extension]
-    tag_dict = tag_handling_class(filepath)
+    try:
+        tag_dict = tag_handling_class(filepath)
+    except ID3NoHeaderError:
+        # A raw mp3 stream (e.g. downloaded directly from SoundCloud, which never
+        # goes through ffmpeg the way a converted YouTube download does) has no
+        # ID3 header yet, so one has to be created before it can be populated.
+        tag_dict = tag_handling_class()
+        tag_dict.save(filepath)
+        tag_dict = tag_handling_class(filepath)
     for key, value in metadata_tags.items():
         tag_dict[key] = value
     tag_dict.save()
