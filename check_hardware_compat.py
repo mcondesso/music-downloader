@@ -29,7 +29,7 @@ import struct
 import subprocess
 import sys
 
-from src.device_profiles import DEVICE_PROFILES
+from src.device_profiles import DEVICE_PROFILES, DeviceProfile
 
 AUDIO_EXTENSIONS = {
     ".mp3",
@@ -69,6 +69,33 @@ HIRES_SAMPLE_RATES = {
 
 FAIL = "FAIL"
 WARN = "WARN"
+
+
+def _sample_rate_finding(
+    sample_rate: int, *, lossless: bool, device_profile: DeviceProfile | None
+) -> tuple[str, str] | None:
+    """Decide the finding for one sample rate, given the file's format
+    (lossless or not) and which device (if any) it's being checked against."""
+    if sample_rate in SAFE_SAMPLE_RATES:
+        return None
+    if lossless and sample_rate in HIRES_SAMPLE_RATES:
+        if device_profile is None:
+            return (WARN, f"{sample_rate} Hz - only 2016+ players accept it; older gear caps at 48 kHz")
+        if device_profile.max_sample_rate_hz and sample_rate <= device_profile.max_sample_rate_hz:
+            return None
+        return (FAIL, f"{sample_rate} Hz exceeds {device_profile.name}'s sample-rate ceiling")
+    return (FAIL, f"{sample_rate} Hz sample rate is outside every player's range")
+
+
+def _format_support_finding(
+    container_format: str, label: str, device_profile: DeviceProfile | None
+) -> tuple[str, str] | None:
+    """Decide the finding for a format (FLAC/ALAC) that only some devices support."""
+    if device_profile is None:
+        return (WARN, f"{label} only plays on 2016+ players (XDJ-1000MK2, NXS2, CDJ-3000, XDJ-AZ)")
+    if container_format in device_profile.formats:
+        return None
+    return (FAIL, f"{label} is not supported on {device_profile.name}")
 
 
 def _ffprobe(filepath: str) -> dict | None:
@@ -114,7 +141,9 @@ def _scan_mp4_boxes(filepath: str) -> list[str]:
     return boxes
 
 
-def _check_mp4(filepath: str, probe: dict) -> list[tuple[str, str]]:
+def _check_mp4(
+    filepath: str, probe: dict, device_profile: DeviceProfile | None = None
+) -> list[tuple[str, str]]:
     """Check .mp4/.m4a files: container structure and codec."""
     findings = []
 
@@ -162,23 +191,19 @@ def _check_mp4(filepath: str, probe: dict) -> list[tuple[str, str]]:
                 (FAIL, f"AAC profile is {profile} - players decode AAC-LC only. Re-encode.")
             )
     elif codec == "alac":
-        findings.append(
-            (
-                WARN,
-                "ALAC - plays on 2016+ players (XDJ-1000MK2, NXS2, CDJ-3000, XDJ-AZ) "
-                "but fails on older gear (CDJ-850/900/2000, XDJ-1000 mk1)",
-            )
-        )
+        finding = _format_support_finding("alac", "ALAC", device_profile)
+        if finding:
+            findings.append(finding)
     elif codec in ("opus", "vorbis"):
         findings.append((FAIL, f"{codec} audio in MP4 - no hardware player supports it. Re-encode to AAC-LC."))
     else:
         findings.append((FAIL, f"unexpected codec '{codec}' in MP4 container"))
 
-    findings.extend(_check_rate_and_channels(audio, lossless=False))
+    findings.extend(_check_rate_and_channels(audio, lossless=False, device_profile=device_profile))
     return findings
 
 
-def _check_wav(filepath: str) -> list[tuple[str, str]]:
+def _check_wav(filepath: str, device_profile: DeviceProfile | None = None) -> list[tuple[str, str]]:
     """Check WAV files by parsing the RIFF fmt chunk directly.
 
     ffprobe's codec label hides the difference between plain PCM and
@@ -232,20 +257,18 @@ def _check_wav(filepath: str) -> list[tuple[str, str]]:
         )
     if channels > 2:
         findings.append((FAIL, f"{channels} channels - downmix to stereo"))
-    if sample_rate not in SAFE_SAMPLE_RATES:
-        if sample_rate in HIRES_SAMPLE_RATES:
-            findings.append(
-                (WARN, f"{sample_rate} Hz - only 2016+ players accept it; older gear caps at 48 kHz")
-            )
-        else:
-            findings.append((FAIL, f"{sample_rate} Hz sample rate is outside every player's range"))
+    finding = _sample_rate_finding(sample_rate, lossless=True, device_profile=device_profile)
+    if finding:
+        findings.append(finding)
 
     if os.path.getsize(filepath) > 4 * 1024**3:
         findings.append((FAIL, "file exceeds the FAT32 4 GB limit"))
     return findings
 
 
-def _check_mp3(filepath: str, probe: dict) -> list[tuple[str, str]]:
+def _check_mp3(
+    filepath: str, probe: dict, device_profile: DeviceProfile | None = None
+) -> list[tuple[str, str]]:
     findings = []
     audio = next((s for s in probe["streams"] if s["codec_type"] == "audio"), None)
     if audio is None:
@@ -259,7 +282,7 @@ def _check_mp3(filepath: str, probe: dict) -> list[tuple[str, str]]:
             )
         )
         return findings
-    findings.extend(_check_rate_and_channels(audio, lossless=False))
+    findings.extend(_check_rate_and_channels(audio, lossless=False, device_profile=device_profile))
     # Oversized ID3v2 tags have been linked to load failures on CDJs
     with open(filepath, "rb") as file:
         head = file.read(10)
@@ -272,7 +295,9 @@ def _check_mp3(filepath: str, probe: dict) -> list[tuple[str, str]]:
     return findings
 
 
-def _check_flac(filepath: str, probe: dict) -> list[tuple[str, str]]:
+def _check_flac(
+    filepath: str, probe: dict, device_profile: DeviceProfile | None = None
+) -> list[tuple[str, str]]:
     findings = []
     with open(filepath, "rb") as file:
         magic = file.read(4)
@@ -284,17 +309,19 @@ def _check_flac(filepath: str, probe: dict) -> list[tuple[str, str]]:
         findings.append((FAIL, "not a native FLAC file despite the extension"))
     audio = next((s for s in probe["streams"] if s["codec_type"] == "audio"), None)
     if audio:
-        findings.extend(_check_rate_and_channels(audio, lossless=True))
+        findings.extend(_check_rate_and_channels(audio, lossless=True, device_profile=device_profile))
         bits = int(audio.get("bits_per_raw_sample") or audio.get("bits_per_sample") or 16)
         if bits > 24:
             findings.append((FAIL, f"{bits}-bit FLAC - players support up to 24-bit"))
-    findings.append(
-        (WARN, "FLAC only plays on 2016+ players (XDJ-1000MK2, NXS2, CDJ-3000, XDJ-AZ)")
-    )
+    finding = _format_support_finding("flac", "FLAC", device_profile)
+    if finding:
+        findings.append(finding)
     return findings
 
 
-def _check_aiff(filepath: str, probe: dict) -> list[tuple[str, str]]:
+def _check_aiff(
+    filepath: str, probe: dict, device_profile: DeviceProfile | None = None
+) -> list[tuple[str, str]]:
     findings = []
     audio = next((s for s in probe["streams"] if s["codec_type"] == "audio"), None)
     if audio is None:
@@ -307,29 +334,32 @@ def _check_aiff(filepath: str, probe: dict) -> list[tuple[str, str]]:
         findings.append(
             (WARN, "'.aifc' extension is rejected even when uncompressed - rename to .aiff")
         )
-    findings.extend(_check_rate_and_channels(audio, lossless=True))
+    findings.extend(_check_rate_and_channels(audio, lossless=True, device_profile=device_profile))
     return findings
 
 
-def _check_rate_and_channels(audio: dict, lossless: bool) -> list[tuple[str, str]]:
+def _check_rate_and_channels(
+    audio: dict, lossless: bool, device_profile: DeviceProfile | None = None
+) -> list[tuple[str, str]]:
     findings = []
     sample_rate = int(audio.get("sample_rate") or 0)
-    if sample_rate not in SAFE_SAMPLE_RATES:
-        if lossless and sample_rate in HIRES_SAMPLE_RATES:
-            findings.append(
-                (WARN, f"{sample_rate} Hz - only 2016+ players accept it; older gear caps at 48 kHz")
-            )
-        else:
-            findings.append(
-                (FAIL, f"{sample_rate} Hz sample rate - players require 44.1/48 kHz. Resample.")
-            )
+    finding = _sample_rate_finding(sample_rate, lossless=lossless, device_profile=device_profile)
+    if finding:
+        findings.append(finding)
     if int(audio.get("channels") or 0) > 2:
         findings.append((FAIL, f"{audio.get('channels')} channels - downmix to stereo"))
     return findings
 
 
-def check_file(filepath: str) -> list[tuple[str, str]]:
-    """Run the appropriate checks for one file and return (level, message) findings."""
+def check_file(filepath: str, device_profile: DeviceProfile | None = None) -> list[tuple[str, str]]:
+    """Run the appropriate checks for one file and return (level, message) findings.
+
+    When device_profile is given, findings are tailored to that specific
+    device (e.g. a hi-res sample rate that would only WARN in general becomes
+    a FAIL if the device's ceiling is lower, or no finding at all if it's
+    within range). Without one, checks fall back to generic warnings that
+    cover the whole range of hardware players in DEVICE_PROFILES.
+    """
     ext = os.path.splitext(filepath)[1].lower()
 
     if ext in (".ogg", ".opus", ".webm"):
@@ -338,26 +368,28 @@ def check_file(filepath: str) -> list[tuple[str, str]]:
         return [(FAIL, "DRM-protected iTunes file - cannot be fixed, re-source the track")]
 
     if ext == ".wav":
-        return _check_wav(filepath)
+        return _check_wav(filepath, device_profile=device_profile)
 
     probe = _ffprobe(filepath)
     if probe is None:
         return [(FAIL, "ffprobe cannot parse this file - it is corrupt or not audio")]
 
     if ext in (".mp4", ".m4a"):
-        return _check_mp4(filepath, probe)
+        return _check_mp4(filepath, probe, device_profile=device_profile)
     if ext == ".aac":
-        return _check_adts(filepath, probe)
+        return _check_adts(filepath, probe, device_profile=device_profile)
     if ext == ".mp3":
-        return _check_mp3(filepath, probe)
+        return _check_mp3(filepath, probe, device_profile=device_profile)
     if ext == ".flac":
-        return _check_flac(filepath, probe)
+        return _check_flac(filepath, probe, device_profile=device_profile)
     if ext in (".aif", ".aiff", ".aifc"):
-        return _check_aiff(filepath, probe)
+        return _check_aiff(filepath, probe, device_profile=device_profile)
     return []
 
 
-def _check_adts(filepath: str, probe: dict) -> list[tuple[str, str]]:
+def _check_adts(
+    filepath: str, probe: dict, device_profile: DeviceProfile | None = None
+) -> list[tuple[str, str]]:
     """Check raw .aac (ADTS) files."""
     findings = []
     audio = next((s for s in probe["streams"] if s["codec_type"] == "audio"), None)
@@ -370,7 +402,7 @@ def _check_adts(filepath: str, probe: dict) -> list[tuple[str, str]]:
         (WARN, "raw ADTS .aac streams are unreliable on players - remux into .m4a: "
                "ffmpeg -i in -c copy -bsf:a aac_adtstoasc out.m4a")
     )
-    findings.extend(_check_rate_and_channels(audio, lossless=False))
+    findings.extend(_check_rate_and_channels(audio, lossless=False, device_profile=device_profile))
     return findings
 
 
@@ -393,6 +425,13 @@ def main():
     parser.add_argument(
         "--all", action="store_true", help="Also list files that pass every check"
     )
+    parser.add_argument(
+        "--device",
+        choices=list(DEVICE_PROFILES.keys()),
+        default=None,
+        help="Check against one specific device instead of the generic warnings "
+        "that cover every player in DEVICE_PROFILES",
+    )
     args = parser.parse_args()
 
     if shutil.which("ffprobe") is None:
@@ -404,9 +443,11 @@ def main():
         print("No audio files found.")
         sys.exit(0)
 
+    device_profile = DEVICE_PROFILES[args.device] if args.device else None
+
     counts = {FAIL: 0, WARN: 0, "OK": 0}
     for filepath in files:
-        findings = check_file(filepath)
+        findings = check_file(filepath, device_profile=device_profile)
         worst = FAIL if any(l == FAIL for l, _ in findings) else (
             WARN if findings else "OK"
         )
