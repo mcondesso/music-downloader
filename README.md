@@ -1,4 +1,16 @@
-# Music downloader
+# Track Tracker
+
+## Web UI
+
+Run the whole workflow from a browser:
+
+```
+poetry run streamlit run app.py
+```
+
+Then point it at an Exportify CSV (or a CSV that already has a "Youtube ID" column)
+and click Start. Matching, downloading and MP3 conversion run one after another,
+with progress bars and logs for each stage.
 
 ## Main Workflow
 
@@ -26,6 +38,8 @@ All downloaded files will be saved as MP3 in a folder named after your input fil
 * `convert_tracks_to_mp3.py` converts all audio files in a directory to MP3 format (128kbps by default), preserving metadata. Use:
     * `poetry run python convert_tracks_to_mp3.py <download_folder> [-d]`
     * The `-d` flag deletes original files after conversion.
+* `check_hardware_compat.py` checks audio files for compatibility with hardware DJ players (Pioneer/AlphaTheta CDJ/XDJ and similar) and reports a fix for each problem it finds — fragmented MP4 downloads, unsupported codecs (HE-AAC, Opus, ALAC), out-of-range sample rates, and WAV header traps. Use:
+    * `poetry run python check_hardware_compat.py <file_or_folder>` (add `--all` to also list passing files)
 
 ---
 
@@ -40,12 +54,12 @@ poetry run python download_from_soundcloud.py <url> [<url> ...] [-o <output_fold
 * Metadata (artist/track) is derived from the SoundCloud title (`Artist - Track`
   when the title contains a dash, otherwise the uploader is used as the artist)
   and written into the file's tags, like `download_tracks.py` does.
-* Files are saved as `.mp3` — SoundCloud's native format, kept without
-  transcoding; sources in other codecs (e.g. Opus) are converted to MP3.
+* Files are saved as `.mp3` — SoundCloud's native progressive stream, kept
+  without transcoding (the same downloader the webapp uses).
 * Already-downloaded tracks are skipped, matching the behaviour of
   `download_tracks.py`.
-* Downloading requires yt-dlp (installed via poetry) and only works for tracks
-  whose owners allow streaming; use it only where you have the rights to do so.
+* Downloading only works for tracks whose owners allow streaming (tracks with
+  a progressive stream); use it only where you have the rights to do so.
 
 ---
 

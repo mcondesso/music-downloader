@@ -67,7 +67,7 @@ def main():
                 continue
 
             output_filepath = get_audio_from_soundcloud(
-                soundcloud_url=url,
+                track_url=url,
                 output_dir=args.output_dir,
                 filename=song_filename,
             )

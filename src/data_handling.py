@@ -1,6 +1,6 @@
 """Module for handling file reading and writing data files."""
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from src.csv_handling import read_csv
 
@@ -13,6 +13,7 @@ COLUMN_GENRES = "Genres"
 COLUMN_TEMPO = "Tempo"
 COLUMN_TRACK_DURATION = "Duration (s)"
 COLUMN_YOUTUBE_ID = "Youtube ID"
+COLUMN_SOUNDCLOUD_URL = "Soundcloud URL"
 COLUMN_ABSOLUTE_FILEPATH = "Absolute Filepath"
 COLUMN_BIT_RATE = "Bit rate (kbps)"
 
@@ -118,3 +119,108 @@ def sanitize_filename(filename: str) -> str:
     translation_table = str.maketrans(invalid_chars, "_" * len(invalid_chars))
     sanitized = filename.translate(translation_table)
     return sanitized
+
+
+_BRACKETED_CONTENT_RE = re.compile(r"[\(\[][^\)\]]*[\)\]]")
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+# Shared across every search source (SoundCloud, YouTube Music, YouTube) so their
+# matching behavior stays in sync and there's a single place to retune them.
+TITLE_MATCH_THRESHOLD = 0.6
+DURATION_THRESHOLD = 0.05
+FALLBACK_DURATION_THRESHOLD = 0.15
+
+# Words that signal a candidate is a different version of the song (remix, edit,
+# alternate cut...) rather than the plain original. Only relevant when they show up
+# in a candidate's title but not in the expected "Artist - Track" search string -
+# a track we're *actually* looking for a remix of has that word in its own title
+# too, so it's never flagged as foreign. These aren't stripped from bracketed text
+# (unlike _normalize_search_words) since that's exactly where they usually live,
+# e.g. "(Moksi Switch Up)" or "(Extended Mix)".
+VERSION_MARKER_WORDS = {
+    "remix", "rmx", "edit", "mashup", "bootleg", "flip", "vip", "rework",
+    "refix", "redo", "switch", "cover", "acoustic", "instrumental", "acapella",
+}
+
+# Connector words that show up around a version marker without introducing a new
+# name, e.g. "(feat. Vintage Culture)" - ignored when deciding whether a candidate
+# introduces content genuinely outside the expected artists/track.
+VERSION_FILLER_WORDS = {"feat", "ft", "featuring", "with", "x", "vs", "and", "the", "a", "an"}
+
+
+def _normalize_search_words(text: str) -> List[str]:
+    """Lowercases, strips bracketed noise (e.g. "(Official Video)", "(feat. X)")
+    and punctuation, splitting the result into a bag of words for fuzzy comparison."""
+    text = _BRACKETED_CONTENT_RE.sub(" ", text.lower())
+    text = _NON_ALNUM_RE.sub(" ", text)
+    return [word for word in text.split() if word]
+
+
+def _all_words(text: str) -> List[str]:
+    """Like _normalize_search_words, but keeps bracketed content - used for the
+    version-marker check, where that's exactly where the signal usually lives."""
+    text = _NON_ALNUM_RE.sub(" ", text.lower())
+    return [word for word in text.split() if word]
+
+
+def is_title_match(expected: str, candidate: str, threshold: float = TITLE_MATCH_THRESHOLD) -> bool:
+    """Whether `candidate` (a search result's title/artist text) plausibly refers to
+    the same song as `expected` (an "Artist - Track" search string), based on what
+    fraction of the expected artist/track words show up in the candidate. This is a
+    second, independent signal alongside duration - a result can have a matching
+    length while being a completely different song."""
+    expected_words = set(_normalize_search_words(expected))
+    candidate_words = set(_normalize_search_words(candidate))
+    if not expected_words or not candidate_words:
+        return False
+    return len(expected_words & candidate_words) / len(expected_words) >= threshold
+
+
+def has_unexpected_version_marker(expected: str, candidate: str) -> bool:
+    """Whether `candidate`'s title introduces a remix/edit/alternate-version marker
+    that isn't present in `expected`, *and* also introduces a name/word we don't
+    already expect (a new remixer, a different uploader...). A marker word alone
+    isn't suspicious - a track can be officially released and credited as e.g.
+    "(Artist B Remix)" where Artist B is already one of the expected artists, and
+    the db's Track Name field just doesn't spell that out. It's only a sign of a
+    different, uncredited version when it comes bundled with unexpected content."""
+    expected_words = set(_all_words(expected))
+    candidate_words = set(_all_words(candidate))
+    if not (candidate_words & VERSION_MARKER_WORDS) - expected_words:
+        return False
+    unexpected_words = candidate_words - expected_words - VERSION_MARKER_WORDS - VERSION_FILLER_WORDS
+    return bool(unexpected_words)
+
+
+def find_closest_matching_result(
+    db_entry: Dict,
+    search_results: List[dict],
+    duration_key: str,
+    title_key: str,
+    duration_threshold: float,
+    title_threshold: float = TITLE_MATCH_THRESHOLD,
+) -> Optional[dict]:
+    """Among search results within `duration_threshold` of the db entry's duration,
+    whose title text plausibly matches, and that don't introduce an unexpected
+    remix/edit marker, return the one with the closest duration. Returns None if
+    nothing qualifies - callers should treat that as "no match on this source",
+    not settle for a same-length but differently-versioned result."""
+    db_duration = db_entry[COLUMN_TRACK_DURATION]
+    expected = get_song_search_string(db_entry)
+    # A multi-artist collab's own name words (e.g. 3 credited artists) can by
+    # themselves clear is_title_match's overlap threshold even when the
+    # candidate is a completely different song by that same collab - the track
+    # name's own words barely move the ratio. Requiring at least one of them to
+    # actually appear closes that hole without needing an exact title match.
+    track_name_words = set(_normalize_search_words(db_entry[COLUMN_TRACK_NAME]))
+    candidates = [
+        result
+        for result in search_results
+        if abs(db_duration - result[duration_key]) / db_duration < duration_threshold
+        and is_title_match(expected, result[title_key], threshold=title_threshold)
+        and not has_unexpected_version_marker(expected, result[title_key])
+        and (not track_name_words or track_name_words & set(_normalize_search_words(result[title_key])))
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda result: abs(db_duration - result[duration_key]))
