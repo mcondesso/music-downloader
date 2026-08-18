@@ -54,7 +54,14 @@ def _download_mp4_video_from_youtube(
 
     print(f"\nDownloading '{filename.rstrip(FILE_EXTENSION_MP4)}'")
 
-    yt = YouTube(youtube_url)
+    # WEB_MUSIC is the client pytubefix's bundled botGuard PO-token generator
+    # actually works reliably with: the default ANDROID_VR client gets flagged
+    # as a bot on an increasing number of videos, and WEB (the client that
+    # activates PO-token generation) still fails on many of those with a SABR
+    # "PoToken PENDING" error during the actual chunked download. WEB_MUSIC
+    # both passes the bot check and returns a non-SABR stream, sidestepping
+    # that failure mode entirely.
+    yt = YouTube(youtube_url, client="WEB_MUSIC")
 
     # Get stream with video in mp4 format, order by Average Bit Rate and take highest bit rate
     video = yt.streams.filter(subtype="mp4").order_by("abr").last()
@@ -73,7 +80,7 @@ def _download_mp4_audio_from_youtube(
 
     print(f"\nDownloading '{filename.rstrip(FILE_EXTENSION_MP4)}'")
 
-    yt = YouTube(youtube_url)
+    yt = YouTube(youtube_url, client="WEB_MUSIC")
 
     # Get stream with only audio in mp4 format, order by Average Bit Rate and take highest bit rate
     video = yt.streams.filter(only_audio=True, subtype="mp4").order_by("abr").last()
