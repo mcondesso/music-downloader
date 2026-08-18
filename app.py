@@ -38,6 +38,7 @@ from src.data_handling import (
     get_youtube_url,
     sanitize_filename,
 )
+from src.device_profiles import DEVICE_PROFILES
 from src.file_handling import scan_directory_for_audio_files
 from src.file_metadata import (
     FILE_EXTENSION_MP3,
@@ -777,16 +778,38 @@ def render_unmatched_tracks_panel():
 
 options_col, steps_col = st.columns([1, 3])
 with options_col:
-    bitrate_checkbox_col, bitrate_select_col = st.columns([2, 3], vertical_alignment="center")
-    with bitrate_checkbox_col:
-        use_max_bitrate = st.checkbox("Max available bitrate", value=True)
-    with bitrate_select_col:
-        bitrate = st.selectbox(
-            "MP3 bitrate",
-            ["128k", "192k", "256k", "320k"],
-            index=0,
-            label_visibility="collapsed",
-            disabled=use_max_bitrate,
+    target_device = st.selectbox(
+        "Target device",
+        ["Custom"] + list(DEVICE_PROFILES.keys()),
+        index=0,
+        help="Picks quality settings to match what the device actually supports. "
+        "Output is MP3-only for now, so only the bitrate ceiling applies today.",
+    )
+    if target_device == "Custom":
+        bitrate_checkbox_col, bitrate_select_col = st.columns([2, 3], vertical_alignment="center")
+        with bitrate_checkbox_col:
+            use_max_bitrate = st.checkbox("Max available bitrate", value=True)
+        with bitrate_select_col:
+            bitrate = st.selectbox(
+                "MP3 bitrate",
+                ["128k", "192k", "256k", "320k"],
+                index=0,
+                label_visibility="collapsed",
+                disabled=use_max_bitrate,
+            )
+    else:
+        device_profile = DEVICE_PROFILES[target_device]
+        use_max_bitrate = True
+        bitrate = f"{device_profile.max_mp3_kbps}k"
+        supported_formats = ", ".join(fmt.upper() for fmt in device_profile.formats)
+        sample_rate_note = (
+            f"up to {device_profile.max_sample_rate_hz // 1000}kHz"
+            if device_profile.max_sample_rate_hz
+            else "no device ceiling"
+        )
+        st.caption(
+            f"Supports {supported_formats} · MP3 capped at {device_profile.max_mp3_kbps}kbps · "
+            f"sample rate {sample_rate_note} (not yet enforced — MP3-only output for now)"
         )
     artist_col, delete_col = st.columns(2)
     with artist_col:

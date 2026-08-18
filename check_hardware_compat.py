@@ -29,6 +29,8 @@ import struct
 import subprocess
 import sys
 
+from src.device_profiles import DEVICE_PROFILES
+
 AUDIO_EXTENSIONS = {
     ".mp3",
     ".mp4",
@@ -45,10 +47,25 @@ AUDIO_EXTENSIONS = {
     ".webm",
 }
 
+_DEVICE_SAMPLE_RATE_CEILINGS = [
+    profile.max_sample_rate_hz
+    for profile in DEVICE_PROFILES.values()
+    if profile.max_sample_rate_hz is not None
+]
+_STANDARD_SAMPLE_RATES = (44100, 48000, 88200, 96000)
+
 # Sample rates in the guaranteed envelope of every Pioneer/AlphaTheta player
-SAFE_SAMPLE_RATES = {44100, 48000}
-# Accepted for lossless formats by newer players only (CDJ-3000, NXS2, XDJ-AZ)
-HIRES_SAMPLE_RATES = {88200, 96000}
+# (i.e. within even the legacy CDJ-2000/CDJ-900 ceiling in DEVICE_PROFILES).
+SAFE_SAMPLE_RATES = {
+    rate for rate in _STANDARD_SAMPLE_RATES if rate <= min(_DEVICE_SAMPLE_RATE_CEILINGS)
+}
+# Accepted for lossless formats by newer players only (CDJ-3000, NXS2, XDJ-AZ) -
+# above the legacy ceiling but within the highest ceiling in DEVICE_PROFILES.
+HIRES_SAMPLE_RATES = {
+    rate
+    for rate in _STANDARD_SAMPLE_RATES
+    if min(_DEVICE_SAMPLE_RATE_CEILINGS) < rate <= max(_DEVICE_SAMPLE_RATE_CEILINGS)
+}
 
 FAIL = "FAIL"
 WARN = "WARN"
