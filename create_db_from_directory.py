@@ -24,7 +24,12 @@ from src.youtube_id_search import (
     find_best_matching_youtube_id,
     get_youtube_search_results,
 )
-from src.file_metadata import extract_metadata_from_file, FILE_EXTENSION_MP3, FILE_EXTENSION_MP4
+from src.file_metadata import (
+    extract_metadata_from_file,
+    FILE_EXTENSION_M4A,
+    FILE_EXTENSION_MP3,
+    FILE_EXTENSION_MP4,
+)
 
 
 def get_output_filename(directory: str) -> str:
@@ -48,7 +53,7 @@ def main():
         sys.exit(1)
     directory = args.directory
     print(f"Scanning directory: {directory}")
-    extensions = {FILE_EXTENSION_MP3, FILE_EXTENSION_MP4}
+    extensions = {FILE_EXTENSION_MP3, FILE_EXTENSION_MP4, FILE_EXTENSION_M4A}
     audio_files = list(scan_directory_for_audio_files(directory, extensions))
     print(f"Found {len(audio_files)} audio files.")
     rows = []

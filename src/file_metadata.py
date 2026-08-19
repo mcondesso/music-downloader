@@ -17,8 +17,9 @@ from src.data_handling import (
 
 FILE_EXTENSION_MP3 = ".mp3"
 FILE_EXTENSION_MP4 = ".mp4"
+FILE_EXTENSION_M4A = ".m4a"
 
-SUPPORTED_FORMATS = {FILE_EXTENSION_MP3, FILE_EXTENSION_MP4}
+SUPPORTED_FORMATS = {FILE_EXTENSION_MP3, FILE_EXTENSION_MP4, FILE_EXTENSION_M4A}
 
 METADATA_TAGS = {
     FILE_EXTENSION_MP3: {
@@ -39,6 +40,10 @@ METADATA_CLASSES = {
     FILE_EXTENSION_MP3: EasyID3,
     FILE_EXTENSION_MP4: MP4,
 }
+
+# .m4a files are MP4 containers, so they share the MP4 tag mapping and handler
+METADATA_TAGS[FILE_EXTENSION_M4A] = METADATA_TAGS[FILE_EXTENSION_MP4]
+METADATA_CLASSES[FILE_EXTENSION_M4A] = METADATA_CLASSES[FILE_EXTENSION_MP4]
 
 
 def get_file_bit_rate_kbps(filepath: str) -> str:
@@ -82,7 +87,7 @@ def extract_metadata_from_file(filepath: str) -> dict:
             # Bit rate in kbps
             if hasattr(audio_mp3.info, "bitrate"):
                 metadata["bit_rate"] = str(int(audio_mp3.info.bitrate // 1000))
-        elif ext == FILE_EXTENSION_MP4:
+        elif ext in (FILE_EXTENSION_MP4, FILE_EXTENSION_M4A):
             audio = MP4(filepath)
             metadata["artist"] = audio.tags.get("©ART", [""])[0]
             metadata["title"] = audio.tags.get("©nam", [""])[0]
@@ -109,7 +114,7 @@ def prepare_metadata_tags(
 
     metadata_tags = {}
 
-    if file_extension == FILE_EXTENSION_MP4:
+    if file_extension in (FILE_EXTENSION_MP4, FILE_EXTENSION_M4A):
         artist_names = music_df_row[COLUMN_ARTIST_NAME].replace(", ", "/")
     else:
         artist_names = music_df_row[COLUMN_ARTIST_NAME].split(",")

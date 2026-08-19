@@ -14,6 +14,7 @@ from src.file_metadata import (
     extract_metadata_from_file,
     prepare_metadata_tags,
     set_file_metadata_tags,
+    FILE_EXTENSION_M4A,
     FILE_EXTENSION_MP3,
     FILE_EXTENSION_MP4,
 )
@@ -46,7 +47,7 @@ def convert_to_mp3(input_path, output_path, bitrate="128k"):
 
     ext = os.path.splitext(input_path)[1].lower()
     try:
-        if ext == FILE_EXTENSION_MP4:
+        if ext in (FILE_EXTENSION_MP4, FILE_EXTENSION_M4A):
             metadata = extract_metadata_from_file(input_path)
             music_df_row = {
                 "Artist Name(s)": metadata.get("artist", ""),
@@ -91,7 +92,11 @@ def main():
     bitrate = args.bitrate
     delete_originals = args.delete_originals
     print(f"Scanning directory: {directory}")
-    audio_files = list(scan_directory_for_audio_files(directory, {FILE_EXTENSION_MP4}))
+    audio_files = list(
+        scan_directory_for_audio_files(
+            directory, {FILE_EXTENSION_MP4, FILE_EXTENSION_M4A}
+        )
+    )
     print(f"Found {len(audio_files)} non-MP3 audio files.")
     for filepath in tqdm(audio_files):
         song_filename = os.path.basename(filepath)

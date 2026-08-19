@@ -1,11 +1,16 @@
 """Module for handling youtube download"""
 import os
+import subprocess
 
 from moviepy.video.io.ffmpeg_reader import ffmpeg_parse_infos
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from pytubefix import YouTube
 
-from src.file_metadata import FILE_EXTENSION_MP3, FILE_EXTENSION_MP4
+from src.file_metadata import (
+    FILE_EXTENSION_M4A,
+    FILE_EXTENSION_MP3,
+    FILE_EXTENSION_MP4,
+)
 
 NUM_RETRIES = 5
 
@@ -20,7 +25,7 @@ def get_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> 
     mp4_filepath = _download_mp4_video_from_youtube(youtube_url, output_dir, filename)
 
     if _is_mp4_file_audio_only(mp4_filepath):
-        return mp4_filepath
+        return _remux_to_clean_m4a(mp4_filepath)
 
     # If mp4 file contains video, we have to extract the audio track
     video_processing_failed = False
@@ -37,8 +42,8 @@ def get_audio_from_youtube(youtube_url: str, output_dir: str, filename: str) -> 
     # the default approach because this can lead to corrupted downloaded files, so we only use
     # it as a fallback.
     if video_processing_failed:
-        audio_filepath = _download_mp4_audio_from_youtube(
-            youtube_url, output_dir, filename
+        audio_filepath = _remux_to_clean_m4a(
+            _download_mp4_audio_from_youtube(youtube_url, output_dir, filename)
         )
 
     return audio_filepath
@@ -108,3 +113,55 @@ def _extract_audio_from_mp4_video(video_filepath: str) -> str:
 def _is_mp4_file_audio_only(mp4_filepath: str) -> bool:
     """This function checks whether an mp4 file is audio only."""
     return not ffmpeg_parse_infos(mp4_filepath)["video_found"]
+
+
+def _remux_to_clean_m4a(mp4_filepath: str) -> str:
+    """Remux a downloaded audio-only MP4 into a standard .m4a container.
+
+    YouTube serves audio-only streams as fragmented DASH MP4 (a `sidx` index
+    followed by many `moof`/`mdat` fragment pairs), and pytubefix saves that
+    stream to disk verbatim. Desktop software plays these files fine, but
+    hardware decoders (DJ players such as Pioneer/AlphaTheta CDJ/XDJ, some car
+    stereos) expect a standard progressive MP4 with a single `moov` index and
+    reject the fragmented files with "unsupported file format" errors.
+
+    Remuxing with ffmpeg (`-c copy`) rewrites only the container: the AAC audio
+    stream is copied bit-for-bit, so the operation is lossless and takes well
+    under a second per file.
+    """
+    m4a_filepath = os.path.splitext(mp4_filepath)[0] + FILE_EXTENSION_M4A
+    subprocess.run(
+        [
+            _get_ffmpeg_exe(),
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            mp4_filepath,
+            "-map",
+            "0:a:0",
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            m4a_filepath,
+        ],
+        check=True,
+    )
+    os.remove(mp4_filepath)
+    return m4a_filepath
+
+
+def _get_ffmpeg_exe() -> str:
+    """Return the ffmpeg executable to use.
+
+    Prefer the binary bundled with moviepy's imageio-ffmpeg dependency, so the
+    remux works even without a system-wide ffmpeg installation; fall back to
+    ffmpeg on PATH.
+    """
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
