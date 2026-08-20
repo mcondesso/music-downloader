@@ -549,6 +549,13 @@ def render_spotify_sidebar():
     Exportify's own login-then-pick flow instead of asking for a pasted URL."""
     st.sidebar.subheader("Spotify")
 
+    if not SPOTIFY_CLIENT_ID:
+        st.sidebar.warning(
+            "Spotify login is disabled: set SPOTIFY_CLIENT_ID in a .env file "
+            "(see .env.example). You can still upload an Exportify CSV below."
+        )
+        return
+
     if "spotify_client" not in st.session_state:
         cached_client = get_cached_spotify_client(SPOTIFY_CLIENT_ID)
         if cached_client:
