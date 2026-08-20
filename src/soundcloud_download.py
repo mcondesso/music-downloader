@@ -14,6 +14,30 @@ class NoProgressiveStreamAvailableError(Exception):
     available (HLS-only or fully playback-restricted tracks)."""
 
 
+def get_soundcloud_track_info(track_url: str) -> dict:
+    """Fetch a track's metadata without downloading it.
+
+    Returns a dict with 'artist', 'track' and 'duration' (seconds). SoundCloud
+    titles frequently embed the artist as 'Artist - Track'; when they do not,
+    the uploader name is used as the artist.
+    """
+    client_id = get_client_id()
+    track = _resolve_track(track_url, client_id)
+
+    title = (track.get("title") or "").strip()
+    uploader = (track.get("user") or {}).get("username", "").strip()
+    if " - " in title:
+        artist, track_name = title.split(" - ", 1)
+    else:
+        artist, track_name = uploader, title
+
+    return {
+        "artist": artist.strip(),
+        "track": track_name.strip(),
+        "duration": int((track.get("duration") or 0) / 1000),
+    }
+
+
 def get_audio_from_soundcloud(track_url: str, output_dir: str, filename: str) -> str:
     """Download a track's audio from SoundCloud. Returns the final filepath,
     already in mp3 format - unlike YouTube, no separate conversion step is

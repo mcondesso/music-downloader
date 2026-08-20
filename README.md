@@ -44,6 +44,26 @@ All downloaded files will be saved as MP3 in a folder named after your input fil
 
 ---
 
+## SoundCloud: download_from_soundcloud.py
+
+To download tracks directly from SoundCloud track URLs (no CSV needed):
+
+```
+poetry run python download_from_soundcloud.py <url> [<url> ...] [-o <output_folder>] [--ait]
+```
+
+* Metadata (artist/track) is derived from the SoundCloud title (`Artist - Track`
+  when the title contains a dash, otherwise the uploader is used as the artist)
+  and written into the file's tags, like `download_tracks.py` does.
+* Files are saved as `.mp3` — SoundCloud's native progressive stream, kept
+  without transcoding (the same downloader the webapp uses).
+* Already-downloaded tracks are skipped, matching the behaviour of
+  `download_tracks.py`.
+* Downloading only works for tracks whose owners allow streaming (tracks with
+  a progressive stream); use it only where you have the rights to do so.
+
+---
+
 ## Directory Scanning: create_db_from_directory.py
 
 If you have a folder of music files and want to generate a CSV database from their metadata:
