@@ -760,14 +760,25 @@ if uploaded_file is not None and st.session_state.get("uploaded_file_id") != upl
 if "tracks" in st.session_state and destination_root:
     sync_states_from_disk(get_download_dir(destination_root, st.session_state.uploaded_file_name))
 
-# Each step is only runnable while there are tracks in the state it acts on.
-STEP_PRECONDITION_STATES = [STATE_PENDING, STATE_MATCHED, STATE_DOWNLOADED]
+# Each step is only runnable while there are tracks in a state it acts on. Besides its
+# natural input state, a step also accepts rows stranded in its own transient states:
+# any Streamlit interaction kills the running script mid-stage, and a row frozen in
+# "Downloading"/"Retrying"/"Converting" would otherwise be unreachable by every stage,
+# deadlocking the UI with all Run buttons disabled.
+DOWNLOAD_ELIGIBLE_STATES = {
+    STATE_MATCHED,
+    STATE_DOWNLOADING,
+    STATE_RETRYING,
+    STATE_FAILED_BEFORE_RETRY,
+}
+CONVERT_ELIGIBLE_STATES = {STATE_DOWNLOADED, STATE_CONVERTING}
+STEP_PRECONDITION_STATES = [{STATE_PENDING}, DOWNLOAD_ELIGIBLE_STATES, CONVERT_ELIGIBLE_STATES]
 
 
-def count_tracks_in_state(state) -> int:
+def count_tracks_in_states(states) -> int:
     if "tracks" not in st.session_state:
         return 0
-    return sum(1 for row in st.session_state.tracks if row["State"] == state)
+    return sum(1 for row in st.session_state.tracks if row["State"] in states)
 
 
 def render_unmatched_tracks_panel():
@@ -859,12 +870,12 @@ with steps_col:
     step_cols = st.columns(3)
     step_containers = []  # (container_key, label_placeholder)
     step_clicked = []
-    for col, name, precondition_state in zip(step_cols, STEPS, STEP_PRECONDITION_STATES):
+    for col, name, precondition_states in zip(step_cols, STEPS, STEP_PRECONDITION_STATES):
         with col:
             container_key = f"step_card_{name.lower()}"
             with st.container(key=container_key, border=False):
                 label_placeholder = st.empty()
-                eligible = count_tracks_in_state(precondition_state) > 0
+                eligible = count_tracks_in_states(precondition_states) > 0
                 step_clicked.append(
                     st.button("Run", key=f"run_{name.lower()}", disabled=not eligible, width="stretch")
                 )
@@ -1033,7 +1044,9 @@ def _run_hardware_compat_check(row: dict, filepath: str) -> None:
 
 
 def run_download_stage(download_dir):
-    pending_rows = [row for row in st.session_state.tracks if row["State"] == STATE_MATCHED]
+    pending_rows = [
+        row for row in st.session_state.tracks if row["State"] in DOWNLOAD_ELIGIBLE_STATES
+    ]
     total = len(pending_rows)
     if total == 0:
         return
@@ -1114,7 +1127,7 @@ def run_conversion_stage(download_dir):
     filename_to_row = {
         get_song_filename(row): row
         for row in st.session_state.tracks
-        if row["State"] == STATE_DOWNLOADED
+        if row["State"] in CONVERT_ELIGIBLE_STATES
     }
     audio_files = list(scan_directory_for_audio_files(download_dir, {FILE_EXTENSION_MP4}))
     if not audio_files:
