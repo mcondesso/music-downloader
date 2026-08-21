@@ -76,6 +76,9 @@ from src.youtube_music_search import (
     find_best_matching_youtube_music_video,
     get_youtube_music_search_results,
 )
+from src.youtube_playlist_export import YoutubePlaylistUnavailableError
+from src.youtube_playlist_export import export_playlist_to_csv as export_youtube_playlist_to_csv
+from src.youtube_playlist_export import extract_playlist_id as extract_youtube_playlist_id
 
 # Covers HTTP errors from Spotify (SpotifyException), OAuth-specific failures
 # (SpotifyOauthError - both share the SpotifyBaseException base), and raw
@@ -87,6 +90,11 @@ SPOTIFY_ERRORS = (requests.RequestException, spotipy.SpotifyBaseException)
 # Same idea again, for Tidal: network failures plus every tidalapi-raised error
 # (TidalAPIError is the common base for all of them).
 TIDAL_ERRORS = (requests.RequestException, tidalapi.exceptions.TidalAPIError)
+
+# And for the YouTube playlist source: network failures plus the module's own
+# "couldn't fetch that playlist" error (which already wraps ytmusicapi's raw
+# failure modes into a user-friendly message).
+YOUTUBE_ERRORS = (requests.RequestException, YoutubePlaylistUnavailableError)
 
 STATE_PENDING = "Pending"
 STATE_MATCHED = "Matched"
@@ -169,7 +177,8 @@ SPOTIFY_SIDEBAR_STYLE = (
 )
 
 # Small original glyphs evoking each service's mark (not a reproduction of the
-# real trademarked artwork): Spotify's soundwave arcs, Tidal's diamond "T".
+# real trademarked artwork): Spotify's soundwave arcs, Tidal's diamond "T",
+# YouTube's play triangle.
 # Two variants each:
 # - "glyph" is transparent-background, `currentColor` only - used on the active
 #   tab, which already supplies the brand-colored background itself.
@@ -209,12 +218,25 @@ TIDAL_LOGO_BADGE_SVG = (
     '<rect x="10.5" y="12.62" width="3" height="3" fill="white" transform="rotate(45 12 14.12)"/>'
     "</svg>"
 )
+YOUTUBE_LOGO_GLYPH_SVG = (
+    '<svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+    '<rect x="3" y="6.5" width="18" height="11" rx="3" stroke="currentColor" stroke-width="1.8" fill="none"/>'
+    '<path d="M10.5 9.5L15 12L10.5 14.5Z" fill="currentColor"/>'
+    "</svg>"
+)
+YOUTUBE_LOGO_BADGE_SVG = (
+    '<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+    '<rect x="1" y="4.5" width="22" height="15" rx="4" fill="#FF0000"/>'
+    '<path d="M9.8 8.8L15.5 12L9.8 15.2Z" fill="white"/>'
+    "</svg>"
+)
 
 # (name, active-state glyph svg, inactive-state badge svg, brand color) for the
 # playlist-source tab bar.
 PLAYLIST_SOURCES = [
     ("Spotify", SPOTIFY_LOGO_GLYPH_SVG, SPOTIFY_LOGO_BADGE_SVG, "#1DB954"),
     ("Tidal", TIDAL_LOGO_GLYPH_SVG, TIDAL_LOGO_BADGE_SVG, "#000000"),
+    ("YouTube", YOUTUBE_LOGO_GLYPH_SVG, YOUTUBE_LOGO_BADGE_SVG, "#FF0000"),
 ]
 
 # Zero gap between the three source-tab columns, so they sit flush against
@@ -434,7 +456,7 @@ def extract_youtube_id(text: str):
 
 st.set_page_config(page_title="Track Tracker", page_icon="🎵", layout="wide")
 st.title("Track Tracker")
-st.caption("Turn a Spotify or Tidal playlist into a folder of tagged MP3s.")
+st.caption("Turn a Spotify, Tidal or YouTube playlist into a folder of tagged MP3s.")
 
 
 def build_tracks(csv_path: str):
@@ -521,6 +543,20 @@ def handle_tidal_playlist_selected(playlist: dict):
         csv_bytes = f.read()
     csv_name = sanitize_filename(playlist["name"]) + ".csv"
     activate_csv_source(csv_bytes, csv_name, f"tidal:{playlist['id']}")
+
+
+def handle_youtube_playlist_url(playlist_id: str) -> int:
+    """Export the pasted YouTube playlist to a CSV and load it exactly like an
+    upload. Returns how many unavailable entries were skipped, so the sidebar
+    can mention them."""
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp_csv_path = tmp.name
+    playlist_title, skipped = export_youtube_playlist_to_csv(playlist_id, tmp_csv_path)
+    with open(tmp_csv_path, "rb") as f:
+        csv_bytes = f.read()
+    csv_name = sanitize_filename(playlist_title) + ".csv"
+    activate_csv_source(csv_bytes, csv_name, f"youtube:{playlist_id}")
+    return skipped
 
 
 def handle_oauth_callback():
@@ -690,6 +726,50 @@ def render_tidal_sidebar():
                     st.rerun()
 
 
+def render_youtube_sidebar():
+    """Left pane: paste a YouTube/YouTube Music playlist URL. No login flow at
+    all (unauthenticated ytmusicapi handles public/unlisted playlists), and no
+    picker list - one URL is one playlist, so it activates immediately."""
+    st.sidebar.subheader("YouTube")
+
+    # One-shot note from the previous run's activation, surfaced after the
+    # rerun so it isn't lost with the rest of that script run's output.
+    skipped_note = st.session_state.pop("youtube_skipped_note", None)
+    if skipped_note:
+        st.sidebar.caption(skipped_note)
+
+    st.sidebar.caption(
+        "Paste a link to a public or unlisted YouTube / YouTube Music "
+        "playlist - no login needed. Its videos are used directly, so tracks "
+        "arrive pre-matched and the Matching step is skipped."
+    )
+    url_col, go_col = st.sidebar.columns([3, 1])
+    with url_col:
+        playlist_url = st.text_input(
+            "YouTube playlist URL",
+            key="youtube_playlist_url",
+            label_visibility="collapsed",
+            placeholder="youtube.com/playlist?list=...",
+        )
+    with go_col:
+        go_clicked = st.button("➜", key="youtube_playlist_go", width="stretch")
+    if not go_clicked:
+        return
+
+    playlist_id = extract_youtube_playlist_id(playlist_url)
+    if not playlist_id:
+        st.sidebar.error("Couldn't find a playlist ID in that link.")
+        return
+    try:
+        skipped = handle_youtube_playlist_url(playlist_id)
+    except YOUTUBE_ERRORS as exc:
+        st.sidebar.error(str(exc))
+        return
+    if skipped:
+        st.session_state["youtube_skipped_note"] = f"{skipped} unavailable track(s) skipped."
+    st.rerun()
+
+
 def render_source_tab_bar():
     """Tabs for picking the playlist source, flush against each other with no
     gaps: each tab is a flat badge in its own brand color, a small square when
@@ -727,8 +807,10 @@ def render_playlist_sidebar():
     source = st.session_state.playlist_source
     if source == "Spotify":
         render_spotify_sidebar()
-    else:
+    elif source == "Tidal":
         render_tidal_sidebar()
+    else:
+        render_youtube_sidebar()
 
 
 render_playlist_sidebar()
