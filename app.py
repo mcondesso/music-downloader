@@ -37,6 +37,7 @@ from src.data_handling import (
     get_data_list_from_exportify_csv,
     get_song_filename,
     get_song_search_string,
+    get_song_search_string_variants,
     get_youtube_url,
     sanitize_filename,
 )
@@ -1021,42 +1022,57 @@ def render_tracks():
 render_tracks()
 
 
+def _find_soundcloud_match(row: dict, search_strings: list) -> str:
+    """Try each query variant in order (see get_song_search_string_variants),
+    returning the first match found, or None if none of them match."""
+    for search_string in search_strings:
+        try:
+            results = search_soundcloud_tracks(search_string)
+            return find_best_matching_soundcloud_track(db_entry=row, search_results=results)
+        except NoMatchingSoundcloudTrackFoundError:
+            continue
+        except Exception as exc:
+            # SoundCloud is an unofficial API (scraped client_id, reverse-engineered
+            # endpoints) - any failure here just means falling back to YouTube,
+            # not failing the match.
+            print(f"SoundCloud search failed for '{search_string}': {exc}")
+            continue
+    return None
+
+
+def _find_youtube_music_match(row: dict, search_strings: list) -> str:
+    """Try each query variant in order (see get_song_search_string_variants),
+    returning the first match found, or None if none of them match."""
+    for search_string in search_strings:
+        try:
+            results = get_youtube_music_search_results(search_string)
+            return find_best_matching_youtube_music_video(db_entry=row, search_results=results)
+        except NoMatchingYoutubeMusicVideoFoundError:
+            continue
+    return None
+
+
 def run_matching_stage():
     pending_rows = [row for row in st.session_state.tracks if row["State"] == STATE_PENDING]
     total = len(pending_rows)
     if total == 0:
         return
     for row in pending_rows:
-        search_string = get_song_search_string(row)
+        search_strings = get_song_search_string_variants(row)
 
-        soundcloud_url = None
-        try:
-            soundcloud_results = search_soundcloud_tracks(search_string)
-            soundcloud_url = find_best_matching_soundcloud_track(
-                db_entry=row, search_results=soundcloud_results
-            )
-        except NoMatchingSoundcloudTrackFoundError:
-            pass
-        except Exception as exc:
-            # SoundCloud is an unofficial API (scraped client_id, reverse-engineered
-            # endpoints) - any failure here just means falling back to YouTube below,
-            # not failing the match.
-            print(f"SoundCloud search failed for '{search_string}': {exc}")
-
+        soundcloud_url = _find_soundcloud_match(row, search_strings)
         if soundcloud_url:
             row[COLUMN_SOUNDCLOUD_URL] = soundcloud_url
             row["State"] = STATE_MATCHED
             render_tracks()
             continue
 
-        try:
-            results = get_youtube_music_search_results(search_string)
-            video_id = find_best_matching_youtube_music_video(db_entry=row, search_results=results)
-        except NoMatchingYoutubeMusicVideoFoundError:
-            row["State"] = STATE_NO_MATCH
-        else:
+        video_id = _find_youtube_music_match(row, search_strings)
+        if video_id:
             row[COLUMN_YOUTUBE_ID] = video_id
             row["State"] = STATE_MATCHED
+        else:
+            row["State"] = STATE_NO_MATCH
         render_tracks()
 
 
@@ -1078,8 +1094,12 @@ def _download_track_audio(row: dict, download_dir: str, song_filename: str) -> s
             row[COLUMN_SOUNDCLOUD_URL] = ""
 
     if not row.get(COLUMN_YOUTUBE_ID):
-        results = get_youtube_music_search_results(get_song_search_string(row))
-        row[COLUMN_YOUTUBE_ID] = find_best_matching_youtube_music_video(db_entry=row, search_results=results)
+        video_id = _find_youtube_music_match(row, get_song_search_string_variants(row))
+        if video_id is None:
+            raise NoMatchingYoutubeMusicVideoFoundError(
+                f"Unable to find a matching YouTube Music video for {get_song_search_string(row)}"
+            )
+        row[COLUMN_YOUTUBE_ID] = video_id
 
     return get_audio_from_youtube(
         youtube_url=get_youtube_url(row), output_dir=download_dir, filename=song_filename

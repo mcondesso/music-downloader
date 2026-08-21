@@ -101,6 +101,29 @@ def get_song_search_string(music_row: Dict) -> str:
     return f"{music_row[COLUMN_ARTIST_NAME]} - {music_row[COLUMN_TRACK_NAME]}"
 
 
+_TRAILING_ORIGINAL_MIX_RE = re.compile(r"\s*-\s*original\s+mix\s*$", re.IGNORECASE)
+
+
+def get_song_search_string_variants(music_row: Dict) -> List[str]:
+    """Query strings to try against a search source, most-preferred first.
+
+    A literal trailing "- Original Mix" in the query text throws off YouTube
+    Music's search ranking - verified empirically: the exact same query with
+    that suffix stripped finds the correct track as the #1 result, while
+    keeping it returns unrelated tracks. The full query (with "Original Mix")
+    is tried first since it's the more precise, preferred match target; a
+    second variant with the suffix stripped is offered only as a fallback for
+    when the full query's results don't produce a match. Matching itself
+    (duration/title thresholds) is unaffected either way - this only changes
+    what's typed into the search box, not what counts as a match."""
+    full = get_song_search_string(music_row)
+    track_name = music_row[COLUMN_TRACK_NAME]
+    stripped_track_name = _TRAILING_ORIGINAL_MIX_RE.sub("", track_name)
+    if stripped_track_name == track_name:
+        return [full]
+    return [full, f"{music_row[COLUMN_ARTIST_NAME]} - {stripped_track_name}"]
+
+
 def get_youtube_url(music_row: Dict) -> str:
     """Helper function to generate the youtube URL for a song."""
     return f"https://www.youtube.com/watch?v={music_row[COLUMN_YOUTUBE_ID]}"
