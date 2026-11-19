@@ -57,8 +57,10 @@ def get_data_list_from_exportify_csv(filepath: str) -> Tuple[List[dict], List[st
             int(selected_row.pop(track_duration_col)) // 1000
         )
 
-        # Ensure that commas have a trailing space and replace multiple whitespaces
-        artist_name = selected_row[COLUMN_ARTIST_NAME].replace(",", ", ")
+        # Exportify separates multiple artists with ";" (older exports used ","):
+        # normalize both to ", " so filenames and tags stay consistent, then
+        # collapse repeated whitespace.
+        artist_name = re.sub(r"\s*[;,]\s*", ", ", selected_row[COLUMN_ARTIST_NAME])
         selected_row[COLUMN_ARTIST_NAME] = re.sub(r"\s+", " ", artist_name)
 
         selected_df.append(selected_row)
