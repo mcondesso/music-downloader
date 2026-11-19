@@ -57,7 +57,7 @@ def _download_mp4_video_from_youtube(
     if not filename.endswith(FILE_EXTENSION_MP4):
         filename += FILE_EXTENSION_MP4
 
-    print(f"\nDownloading '{filename.rstrip(FILE_EXTENSION_MP4)}'")
+    print(f"\nDownloading '{filename.removesuffix(FILE_EXTENSION_MP4)}'")
 
     # WEB_MUSIC is the client pytubefix's bundled botGuard PO-token generator
     # actually works reliably with: the default ANDROID_VR client gets flagged
@@ -83,7 +83,7 @@ def _download_mp4_audio_from_youtube(
     if not filename.endswith(FILE_EXTENSION_MP4):
         filename += FILE_EXTENSION_MP4
 
-    print(f"\nDownloading '{filename.rstrip(FILE_EXTENSION_MP4)}'")
+    print(f"\nDownloading '{filename.removesuffix(FILE_EXTENSION_MP4)}'")
 
     yt = YouTube(youtube_url, client="WEB_MUSIC")
 
