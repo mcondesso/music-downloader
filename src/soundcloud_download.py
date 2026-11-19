@@ -45,7 +45,7 @@ def get_audio_from_soundcloud(track_url: str, output_dir: str, filename: str) ->
     if not filename.endswith(FILE_EXTENSION_MP3):
         filename += FILE_EXTENSION_MP3
 
-    print(f"\nDownloading '{filename.rstrip(FILE_EXTENSION_MP3)}' from SoundCloud")
+    print(f"\nDownloading '{filename.removesuffix(FILE_EXTENSION_MP3)}' from SoundCloud")
 
     client_id = get_client_id()
     track = _resolve_track(track_url, client_id)
