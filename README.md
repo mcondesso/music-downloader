@@ -19,15 +19,15 @@ YouTube tracks arrive pre-matched, so the Matching step is skipped.
 The main workflow is automated via the `run.sh` script:
 
 ```
-./run.sh <path_to_file_extracted_by_exportify.csv>
+./run.sh [--mp3] <path_to_file_extracted_by_exportify.csv>
 ```
 
 This will:
 1. Generate a new CSV with Youtube IDs for each song (`create_db_with_youtube_ids.py`).
 2. Download the tracks from Youtube (`download_tracks.py`).
-3. Convert all downloaded tracks to MP3 format (`convert_tracks_to_mp3.py`).
+3. Only with `--mp3`: convert all downloaded tracks to MP3 format and delete the originals (`convert_tracks_to_mp3.py`).
 
-All downloaded files will be saved as MP3 in a folder named after your input file (without `.csv`).
+All downloaded files are saved in a folder named after your input file (without `.csv`). By default they stay as `.m4a`. YouTube's audio is already AAC, and the download only repackages it, so the `.m4a` is the best quality you can get. Converting to MP3 re-encodes it a second time and loses quality for no benefit. Use `--mp3` only if your player can't play `.m4a`, and run `check_hardware_compat.py` on the folder if you're unsure.
 
 ---
 
@@ -80,4 +80,4 @@ If you have a folder of music files and want to generate a CSV database from the
 
 1. [Install poetry](https://python-poetry.org/docs/#installing-with-the-official-installer) for package management
 2. `poetry install`
-3. `sudo apt-get install ffmpeg` to be able run `convert_tracks_to_mp3.py`
+3. `sudo apt-get install ffmpeg` (needed to remux downloads into a standard `.m4a` and by `convert_tracks_to_mp3.py`)
