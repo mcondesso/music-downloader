@@ -1,7 +1,8 @@
 """Module for handling youtube search."""
+import json
 import re
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from youtube_search import YoutubeSearch
 
@@ -17,10 +18,61 @@ class NoMatchingYoutubeVideoFoundError(Exception):
     """Exception raised when no matching youtube video could be found"""
 
 
+class _TolerantYoutubeSearch(YoutubeSearch):
+    """YoutubeSearch whose parser survives layout changes in YouTube's results page.
+
+    The upstream parser assumes every section in the results list is an
+    ``itemSectionRenderer`` and raises ``KeyError`` when YouTube interleaves
+    other section types (ad slots, ``continuationItemRenderer``, ...). This
+    version skips sections and items it doesn't understand, and returns no
+    results instead of crashing when the page can't be parsed at all.
+    """
+
+    def _parse_html(self, response):
+        try:
+            start = response.index("ytInitialData") + len("ytInitialData") + 3
+            end = response.index("};", start) + 1
+            data = json.loads(response[start:end])
+            sections = data["contents"]["twoColumnSearchResultsRenderer"][
+                "primaryContents"
+            ]["sectionListRenderer"]["contents"]
+        except (ValueError, KeyError, TypeError):
+            return []
+
+        results = []
+        for section in sections:
+            items = section.get("itemSectionRenderer", {}).get("contents", [])
+            for item in items:
+                video_data = item.get("videoRenderer")
+                if not video_data or not video_data.get("videoId"):
+                    continue
+                results.append(
+                    {
+                        "id": video_data["videoId"],
+                        "title": _first_run_text(video_data.get("title")),
+                        "channel": _first_run_text(video_data.get("longBylineText")),
+                        "duration": video_data.get("lengthText", {}).get(
+                            "simpleText", 0
+                        ),
+                        "views": video_data.get("viewCountText", {}).get(
+                            "simpleText", 0
+                        ),
+                    }
+                )
+            if results:
+                return results
+        return results
+
+
+def _first_run_text(text_obj: Optional[dict]) -> str:
+    runs = (text_obj or {}).get("runs") or [{}]
+    return runs[0].get("text") or ""
+
+
 def get_youtube_search_results(input_string: str, n_results: int = 5) -> List[dict]:
     """This function searches a string on youtube, loads and sorts the best 5 potential matches"""
     # Make GET request to youtube
-    raw_results = YoutubeSearch(
+    raw_results = _TolerantYoutubeSearch(
         search_terms=input_string, max_results=n_results
     ).to_dict()
 
